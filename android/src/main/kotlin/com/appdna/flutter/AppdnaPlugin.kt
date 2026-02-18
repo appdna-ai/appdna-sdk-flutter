@@ -62,6 +62,16 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                 AppDNA.flush()
                 result.success(null)
             }
+            "presentPaywall" -> {
+                val id = call.argument<String>("id")!!
+                activity?.let { AppDNA.presentPaywall(it, id) }
+                result.success(null)
+            }
+            "presentOnboarding" -> {
+                val flowId = call.argument<String>("flowId")!!
+                activity?.let { AppDNA.presentOnboarding(it, flowId) }
+                result.success(null)
+            }
             "getRemoteConfig" -> {
                 val key = call.argument<String>("key")!!
                 result.success(AppDNA.getRemoteConfig(key))

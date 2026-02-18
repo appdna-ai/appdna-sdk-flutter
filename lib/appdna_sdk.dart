@@ -5,11 +5,13 @@ import 'package:flutter/services.dart';
 import 'models/web_entitlement.dart';
 import 'models/deferred_deep_link.dart';
 import 'models/paywall_context.dart';
+import 'models/appdna_options.dart';
 
 export 'models/web_entitlement.dart';
 export 'models/deferred_deep_link.dart';
 export 'models/paywall_context.dart';
 export 'models/survey_result.dart';
+export 'models/appdna_options.dart';
 
 enum AppDNAEnvironment { production, staging }
 
@@ -24,10 +26,12 @@ class AppDNA {
   static Future<void> configure({
     required String apiKey,
     AppDNAEnvironment env = AppDNAEnvironment.production,
+    AppDNAOptions? options,
   }) async {
     await _channel.invokeMethod('configure', {
       'apiKey': apiKey,
       'env': env.name,
+      if (options != null) 'options': options.toMap(),
     });
   }
 
@@ -155,5 +159,19 @@ class AppDNA {
     final data = await _channel.invokeMethod<Map>('checkDeferredDeepLink');
     if (data == null) return null;
     return DeferredDeepLink.fromMap(Map<String, dynamic>.from(data));
+  }
+
+  // MARK: - Lifecycle
+
+  /// Shut down the SDK and release resources.
+  /// On Android this delegates to AppDNA.shutdown(); on iOS this is a no-op.
+  static Future<void> shutdown() async {
+    await _channel.invokeMethod('shutdown');
+  }
+
+  /// Get the native SDK version string (e.g. "0.3.0").
+  static Future<String> getSdkVersion() async {
+    final version = await _channel.invokeMethod<String>('getSdkVersion');
+    return version ?? 'unknown';
   }
 }

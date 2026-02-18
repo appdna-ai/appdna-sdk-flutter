@@ -3,7 +3,9 @@ package com.appdna.flutter
 import android.app.Activity
 import android.content.Context
 import ai.appdna.sdk.AppDNA
+import ai.appdna.sdk.AppDNAOptions
 import ai.appdna.sdk.Environment
+import ai.appdna.sdk.LogLevel
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -39,7 +41,8 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                 val apiKey = call.argument<String>("apiKey")!!
                 val envStr = call.argument<String>("env") ?: "production"
                 val env = if (envStr == "staging") Environment.SANDBOX else Environment.PRODUCTION
-                context?.let { AppDNA.configure(it, apiKey, env) }
+                val options = parseOptions(call.argument<Map<String, Any>>("options"))
+                context?.let { AppDNA.configure(it, apiKey, env, options) }
                 result.success(null)
             }
             "identify" -> {
@@ -121,8 +124,33 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                     result.success(deepLink?.toMap())
                 }
             }
+            "shutdown" -> {
+                AppDNA.shutdown()
+                result.success(null)
+            }
+            "getSdkVersion" -> {
+                result.success(AppDNA.sdkVersion)
+            }
             else -> result.notImplemented()
         }
+    }
+
+    private fun parseOptions(map: Map<String, Any>?): AppDNAOptions {
+        if (map == null) return AppDNAOptions()
+        val logLevel = when (map["logLevel"] as? String) {
+            "none" -> LogLevel.NONE
+            "error" -> LogLevel.ERROR
+            "warning" -> LogLevel.WARNING
+            "info" -> LogLevel.INFO
+            "debug" -> LogLevel.DEBUG
+            else -> LogLevel.WARNING
+        }
+        return AppDNAOptions(
+            flushInterval = (map["flushInterval"] as? Number)?.toLong() ?: 30L,
+            batchSize = (map["batchSize"] as? Number)?.toInt() ?: 20,
+            configTTL = (map["configTTL"] as? Number)?.toLong() ?: 300L,
+            logLevel = logLevel
+        )
     }
 
     // ActivityAware

@@ -21,7 +21,7 @@ class AppDNAOptions {
   /// Billing provider for paywall purchases (iOS only). Default: storeKit2.
   final AppDNABillingProvider? billingProvider;
 
-  AppDNAOptions({
+  const AppDNAOptions({
     this.flushInterval,
     this.batchSize,
     this.configTTL,

@@ -4,7 +4,7 @@ class DeferredDeepLink {
   final Map<String, String> params;
   final String visitorId;
 
-  DeferredDeepLink({
+  const DeferredDeepLink({
     required this.screen,
     required this.params,
     required this.visitorId,

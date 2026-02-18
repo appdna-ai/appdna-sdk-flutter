@@ -8,7 +8,7 @@ class WebEntitlement {
   final DateTime? currentPeriodEnd;
   final DateTime? trialEnd;
 
-  WebEntitlement({
+  const WebEntitlement({
     required this.isActive,
     this.planName,
     this.priceId,

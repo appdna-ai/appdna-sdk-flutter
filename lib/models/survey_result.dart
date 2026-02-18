@@ -12,7 +12,7 @@ class SurveyResult {
   /// Survey answers (only present when completed).
   final List<SurveyAnswer>? answers;
 
-  SurveyResult({
+  const SurveyResult({
     required this.surveyId,
     required this.completed,
     required this.questionsAnswered,
@@ -46,7 +46,7 @@ class SurveyAnswer {
   /// The answer value (can be int, String, List, etc.).
   final dynamic answer;
 
-  SurveyAnswer({required this.questionId, required this.answer});
+  const SurveyAnswer({required this.questionId, required this.answer});
 
   factory SurveyAnswer.fromMap(Map<String, dynamic> map) {
     return SurveyAnswer(

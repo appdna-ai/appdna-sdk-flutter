@@ -3,7 +3,7 @@ class PaywallContext {
   final String? placement;
   final Map<String, dynamic>? customData;
 
-  PaywallContext({this.placement, this.customData});
+  const PaywallContext({this.placement, this.customData});
 
   Map<String, dynamic> toMap() => {
         if (placement != null) 'placement': placement,

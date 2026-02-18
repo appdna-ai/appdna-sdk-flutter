@@ -6,6 +6,7 @@ import ai.appdna.sdk.AppDNA
 import ai.appdna.sdk.AppDNAOptions
 import ai.appdna.sdk.Environment
 import ai.appdna.sdk.LogLevel
+import ai.appdna.sdk.paywalls.PaywallContext
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -67,7 +68,16 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
             }
             "presentPaywall" -> {
                 val id = call.argument<String>("id")!!
-                activity?.let { AppDNA.presentPaywall(it, id) }
+                val contextMap = call.argument<Map<String, Any>>("context")
+                val paywallContext = contextMap?.let { map ->
+                    val placement = map["placement"] as? String ?: return@let null
+                    PaywallContext(
+                        placement = placement,
+                        experiment = map["experiment"] as? String,
+                        variant = map["variant"] as? String
+                    )
+                }
+                activity?.let { AppDNA.presentPaywall(it, id, paywallContext) }
                 result.success(null)
             }
             "presentOnboarding" -> {

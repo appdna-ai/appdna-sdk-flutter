@@ -27,7 +27,7 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         case "configure":
             let apiKey = args["apiKey"] as! String
             let envStr = args["env"] as? String ?? "production"
-            let env: Environment = envStr == "staging" ? .staging : .production
+            let env: Environment = envStr == "staging" ? .sandbox : .production
             let options = parseOptions(args["options"] as? [String: Any])
             AppDNA.configure(apiKey: apiKey, environment: env, options: options)
             result(nil)

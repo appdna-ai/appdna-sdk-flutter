@@ -142,6 +142,17 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                 AppDNA.setPushPermission(granted)
                 result.success(null)
             }
+            "trackPushDelivered" -> {
+                val pushId = call.argument<String>("pushId")!!
+                AppDNA.trackPushDelivered(pushId)
+                result.success(null)
+            }
+            "trackPushTapped" -> {
+                val pushId = call.argument<String>("pushId")!!
+                val action = call.argument<String>("action")
+                AppDNA.trackPushTapped(pushId, action)
+                result.success(null)
+            }
             "setConsent" -> {
                 val analytics = call.argument<Boolean>("analytics") ?: true
                 AppDNA.setConsent(analytics)

@@ -114,6 +114,17 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             AppDNA.setPushPermission(granted: granted)
             result(nil)
 
+        case "trackPushDelivered":
+            let pushId = args["pushId"] as! String
+            AppDNA.trackPushDelivered(pushId: pushId)
+            result(nil)
+
+        case "trackPushTapped":
+            let pushId = args["pushId"] as! String
+            let action = args["action"] as? String
+            AppDNA.trackPushTapped(pushId: pushId, action: action)
+            result(nil)
+
         case "setConsent":
             let analytics = args["analytics"] as? Bool ?? true
             AppDNA.setConsent(analytics: analytics)

@@ -13,6 +13,7 @@ export 'models/paywall_context.dart';
 export 'models/survey_result.dart';
 export 'models/appdna_options.dart';
 export 'billing.dart';
+export 'push.dart';
 
 enum AppDNAEnvironment { production, staging }
 
@@ -115,7 +116,7 @@ class AppDNA {
     });
   }
 
-  /// Set push token.
+  /// Set push token. Registers with backend for direct push delivery.
   static Future<void> setPushToken(String token) async {
     await _channel.invokeMethod('setPushToken', {'token': token});
   }
@@ -123,6 +124,19 @@ class AppDNA {
   /// Report push permission status.
   static Future<void> setPushPermission(bool granted) async {
     await _channel.invokeMethod('setPushPermission', {'granted': granted});
+  }
+
+  /// Track push notification delivered (SPEC-030).
+  static Future<void> trackPushDelivered(String pushId) async {
+    await _channel.invokeMethod('trackPushDelivered', {'pushId': pushId});
+  }
+
+  /// Track push notification tapped (SPEC-030).
+  static Future<void> trackPushTapped(String pushId, {String? action}) async {
+    await _channel.invokeMethod('trackPushTapped', {
+      'pushId': pushId,
+      if (action != null) 'action': action,
+    });
   }
 
   /// Set analytics consent.

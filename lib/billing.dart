@@ -96,7 +96,10 @@ class AppDNABilling {
     _channel.setMethodCallHandler((call) async {
       switch (call.method) {
         case 'onPurchaseCompleted':
-          delegate.onPurchaseCompleted(call.arguments['productId']);
+          delegate.onPurchaseCompleted(
+            call.arguments['productId'],
+            Map<String, dynamic>.from(call.arguments['transaction'] ?? {}),
+          );
           break;
         case 'onPurchaseFailed':
           delegate.onPurchaseFailed(
@@ -110,11 +113,11 @@ class AppDNABilling {
           delegate.onEntitlementsChanged(entitlements);
           break;
         case 'onRestoreCompleted':
-          final List<Map<String, dynamic>> entitlements =
-              (call.arguments['entitlements'] as List)
-                  .map((e) => Map<String, dynamic>.from(e as Map))
+          final List<String> restoredProducts =
+              (call.arguments['restoredProducts'] as List)
+                  .map((e) => e.toString())
                   .toList();
-          delegate.onRestoreCompleted(entitlements);
+          delegate.onRestoreCompleted(restoredProducts);
           break;
       }
     });

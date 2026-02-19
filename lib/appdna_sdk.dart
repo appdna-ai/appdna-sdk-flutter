@@ -12,6 +12,7 @@ export 'models/deferred_deep_link.dart';
 export 'models/paywall_context.dart';
 export 'models/survey_result.dart';
 export 'models/appdna_options.dart';
+export 'billing.dart';
 
 enum AppDNAEnvironment { production, staging }
 

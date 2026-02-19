@@ -4,6 +4,8 @@ import AppDNASDK
 
 public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     private var eventSink: FlutterEventSink?
+    private var billingChannel: FlutterMethodChannel?
+    private var entitlementEventSink: FlutterEventSink?
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(
@@ -15,9 +17,22 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             binaryMessenger: registrar.messenger()
         )
 
+        // Billing channels
+        let billingChannel = FlutterMethodChannel(
+            name: "com.appdna.sdk/billing",
+            binaryMessenger: registrar.messenger()
+        )
+        let entitlementEventChannel = FlutterEventChannel(
+            name: "com.appdna.sdk/entitlements",
+            binaryMessenger: registrar.messenger()
+        )
+
         let instance = AppdnaPlugin()
+        instance.billingChannel = billingChannel
         registrar.addMethodCallDelegate(instance, channel: channel)
+        billingChannel.setMethodCallHandler(instance.handleBilling)
         eventChannel.setStreamHandler(instance)
+        entitlementEventChannel.setStreamHandler(BillingEntitlementStreamHandler(plugin: instance))
     }
 
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -196,6 +211,72 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         )
     }
 
+    // MARK: - Billing method channel handler
+
+    private func handleBilling(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        let args = call.arguments as? [String: Any] ?? [:]
+
+        switch call.method {
+        case "purchase":
+            let productId = args["productId"] as! String
+            let offerToken = args["offerToken"] as? String
+            Task {
+                do {
+                    let billingResult = try await AppDNA.billing.purchase(productId: productId, offerToken: offerToken)
+                    DispatchQueue.main.async {
+                        result(billingResult.toFlutterMap())
+                    }
+                } catch {
+                    DispatchQueue.main.async {
+                        result(FlutterError(code: "PURCHASE_ERROR", message: error.localizedDescription, details: nil))
+                    }
+                }
+            }
+
+        case "restorePurchases":
+            Task {
+                do {
+                    let entitlements = try await AppDNA.billing.restorePurchases()
+                    let maps = entitlements.map { $0.toFlutterMap() }
+                    DispatchQueue.main.async {
+                        result(maps)
+                    }
+                } catch {
+                    DispatchQueue.main.async {
+                        result(FlutterError(code: "RESTORE_ERROR", message: error.localizedDescription, details: nil))
+                    }
+                }
+            }
+
+        case "getProducts":
+            let productIds = args["productIds"] as? [String] ?? []
+            Task {
+                do {
+                    let products = try await AppDNA.billing.getProducts(productIds: productIds)
+                    let maps = products.map { $0.toFlutterMap() }
+                    DispatchQueue.main.async {
+                        result(maps)
+                    }
+                } catch {
+                    DispatchQueue.main.async {
+                        result(FlutterError(code: "PRODUCTS_ERROR", message: error.localizedDescription, details: nil))
+                    }
+                }
+            }
+
+        case "hasActiveSubscription":
+            Task {
+                let hasActive = await AppDNA.billing.hasActiveSubscription()
+                DispatchQueue.main.async {
+                    result(hasActive)
+                }
+            }
+
+        default:
+            result(FlutterMethodNotImplemented)
+        }
+    }
+
     // MARK: - FlutterStreamHandler (web entitlement events)
 
     public func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
@@ -208,6 +289,30 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
 
     public func onCancel(withArguments arguments: Any?) -> FlutterError? {
         eventSink = nil
+        return nil
+    }
+}
+
+// MARK: - Billing entitlement stream handler
+
+private class BillingEntitlementStreamHandler: NSObject, FlutterStreamHandler {
+    weak var plugin: AppdnaPlugin?
+
+    init(plugin: AppdnaPlugin) {
+        self.plugin = plugin
+    }
+
+    func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+        plugin?.entitlementEventSink = events
+        AppDNA.billing.onEntitlementsChanged { [weak self] entitlements in
+            let maps = entitlements.map { $0.toFlutterMap() }
+            self?.plugin?.entitlementEventSink?(maps)
+        }
+        return nil
+    }
+
+    func onCancel(withArguments arguments: Any?) -> FlutterError? {
+        plugin?.entitlementEventSink = nil
         return nil
     }
 }

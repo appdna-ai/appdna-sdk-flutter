@@ -15,13 +15,18 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
+import kotlinx.coroutines.*
 
 class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChannel.StreamHandler {
     private lateinit var channel: MethodChannel
     private lateinit var eventChannel: EventChannel
+    private lateinit var billingChannel: MethodChannel
+    private lateinit var entitlementEventChannel: EventChannel
     private var context: Context? = null
     private var activity: Activity? = null
     private var eventSink: EventChannel.EventSink? = null
+    private var entitlementEventSink: EventChannel.EventSink? = null
+    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         context = binding.applicationContext
@@ -29,11 +34,31 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
         channel.setMethodCallHandler(this)
         eventChannel = EventChannel(binding.binaryMessenger, "com.appdna.sdk/web_entitlement")
         eventChannel.setStreamHandler(this)
+
+        // Billing channels
+        billingChannel = MethodChannel(binding.binaryMessenger, "com.appdna.sdk/billing")
+        billingChannel.setMethodCallHandler { call, result -> handleBilling(call, result) }
+        entitlementEventChannel = EventChannel(binding.binaryMessenger, "com.appdna.sdk/entitlements")
+        entitlementEventChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                entitlementEventSink = events
+                AppDNA.billing.onEntitlementsChanged { entitlements ->
+                    val maps = entitlements.map { it.toMap() }
+                    entitlementEventSink?.success(maps)
+                }
+            }
+            override fun onCancel(arguments: Any?) {
+                entitlementEventSink = null
+            }
+        })
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
         eventChannel.setStreamHandler(null)
+        billingChannel.setMethodCallHandler(null)
+        entitlementEventChannel.setStreamHandler(null)
+        scope.cancel()
     }
 
     override fun onMethodCall(call: MethodCall, result: Result) {
@@ -140,6 +165,55 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
             }
             "getSdkVersion" -> {
                 result.success(AppDNA.sdkVersion)
+            }
+            else -> result.notImplemented()
+        }
+    }
+
+    private fun handleBilling(call: MethodCall, result: Result) {
+        when (call.method) {
+            "purchase" -> {
+                val productId = call.argument<String>("productId")!!
+                val offerToken = call.argument<String>("offerToken")
+                scope.launch {
+                    try {
+                        val purchaseResult = AppDNA.billing.purchase(productId, offerToken)
+                        result.success(purchaseResult.toMap())
+                    } catch (e: Exception) {
+                        result.error("PURCHASE_ERROR", e.message, null)
+                    }
+                }
+            }
+            "restorePurchases" -> {
+                scope.launch {
+                    try {
+                        val entitlements = AppDNA.billing.restorePurchases()
+                        result.success(entitlements.map { it.toMap() })
+                    } catch (e: Exception) {
+                        result.error("RESTORE_ERROR", e.message, null)
+                    }
+                }
+            }
+            "getProducts" -> {
+                val productIds = call.argument<List<String>>("productIds") ?: emptyList()
+                scope.launch {
+                    try {
+                        val products = AppDNA.billing.getProducts(productIds)
+                        result.success(products.map { it.toMap() })
+                    } catch (e: Exception) {
+                        result.error("PRODUCTS_ERROR", e.message, null)
+                    }
+                }
+            }
+            "hasActiveSubscription" -> {
+                scope.launch {
+                    try {
+                        val hasActive = AppDNA.billing.hasActiveSubscription()
+                        result.success(hasActive)
+                    } catch (e: Exception) {
+                        result.error("SUBSCRIPTION_ERROR", e.message, null)
+                    }
+                }
             }
             else -> result.notImplemented()
         }

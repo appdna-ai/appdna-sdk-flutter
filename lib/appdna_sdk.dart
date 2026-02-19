@@ -256,14 +256,20 @@ class AppDNAPushModule {
   void setDelegate(AppDNAPushDelegate delegate) {
     _channel.setMethodCallHandler((call) async {
       switch (call.method) {
-        case 'onTokenRegistered':
-          delegate.onTokenRegistered(call.arguments['token']);
+        case 'onPushTokenRegistered':
+          delegate.onPushTokenRegistered(call.arguments['token']);
           break;
         case 'onPushReceived':
-          delegate.onPushReceived(Map<String, dynamic>.from(call.arguments));
+          delegate.onPushReceived(
+            Map<String, dynamic>.from(call.arguments['payload'] ?? call.arguments),
+            call.arguments['inForeground'] ?? false,
+          );
           break;
         case 'onPushTapped':
-          delegate.onPushTapped(Map<String, dynamic>.from(call.arguments));
+          delegate.onPushTapped(
+            Map<String, dynamic>.from(call.arguments['payload'] ?? call.arguments),
+            call.arguments['actionId'],
+          );
           break;
       }
     });
@@ -283,16 +289,27 @@ class AppDNAOnboardingModule {
     _channel.setMethodCallHandler((call) async {
       switch (call.method) {
         case 'onOnboardingStarted':
-          delegate.onStarted(call.arguments['flowId']);
+          delegate.onOnboardingStarted(call.arguments['flowId']);
           break;
         case 'onOnboardingStepChanged':
-          delegate.onStepChanged(call.arguments['flowId'], call.arguments['stepIndex']);
+          delegate.onOnboardingStepChanged(
+            call.arguments['flowId'],
+            call.arguments['stepId'] ?? '',
+            call.arguments['stepIndex'],
+            call.arguments['totalSteps'] ?? 0,
+          );
           break;
         case 'onOnboardingCompleted':
-          delegate.onCompleted(call.arguments['flowId']);
+          delegate.onOnboardingCompleted(
+            call.arguments['flowId'],
+            Map<String, dynamic>.from(call.arguments['responses'] ?? {}),
+          );
           break;
         case 'onOnboardingDismissed':
-          delegate.onDismissed(call.arguments['flowId']);
+          delegate.onOnboardingDismissed(
+            call.arguments['flowId'],
+            call.arguments['atStep'] ?? 0,
+          );
           break;
       }
     });
@@ -312,22 +329,26 @@ class AppDNAPaywallModule {
     _channel.setMethodCallHandler((call) async {
       switch (call.method) {
         case 'onPaywallPresented':
-          delegate.onPresented(call.arguments['paywallId']);
+          delegate.onPaywallPresented(call.arguments['paywallId']);
           break;
         case 'onPaywallAction':
-          delegate.onAction(call.arguments['paywallId'], call.arguments['action']);
+          delegate.onPaywallAction(call.arguments['paywallId'], call.arguments['action']);
           break;
         case 'onPaywallPurchaseStarted':
-          delegate.onPurchaseStarted(call.arguments['paywallId'], call.arguments['productId']);
+          delegate.onPaywallPurchaseStarted(call.arguments['paywallId'], call.arguments['productId']);
           break;
         case 'onPaywallPurchaseCompleted':
-          delegate.onPurchaseCompleted(call.arguments['paywallId'], call.arguments['productId']);
+          delegate.onPaywallPurchaseCompleted(
+            call.arguments['paywallId'],
+            call.arguments['productId'],
+            Map<String, dynamic>.from(call.arguments['transaction'] ?? {}),
+          );
           break;
         case 'onPaywallPurchaseFailed':
-          delegate.onPurchaseFailed(call.arguments['paywallId'], call.arguments['productId'], call.arguments['error']);
+          delegate.onPaywallPurchaseFailed(call.arguments['paywallId'], call.arguments['error'] ?? '');
           break;
         case 'onPaywallDismissed':
-          delegate.onDismissed(call.arguments['paywallId']);
+          delegate.onPaywallDismissed(call.arguments['paywallId']);
           break;
       }
     });
@@ -343,14 +364,12 @@ class AppDNARemoteConfigModule {
   Future<void> refresh() => _channel.invokeMethod('refreshConfig');
 
   /// Get all remote config values as a map.
-  Map<String, dynamic> getAll() {
-    // Synchronous accessor for cached config values.
-    // The native side maintains a local cache that is populated on configure/refresh.
-    final Map<String, dynamic> result = {};
-    _channel.invokeMethod<Map>('getAllRemoteConfig').then((data) {
-      if (data != null) result.addAll(Map<String, dynamic>.from(data));
-    });
-    return result;
+  Future<Map<String, dynamic>> getAll() async {
+    final data = await _channel.invokeMethod<Map>('getAllRemoteConfig');
+    if (data != null) {
+      return Map<String, dynamic>.from(data);
+    }
+    return {};
   }
 
   /// Register a callback to be notified when remote config values change.
@@ -374,8 +393,8 @@ class AppDNAFeaturesModule {
   }
 
   /// Get the variant value for a feature flag (for multi-variate flags).
-  dynamic getVariant(String flag) {
-    return _channel.invokeMethod('getFeatureVariant', {'flag': flag});
+  Future<dynamic> getVariant(String flag) async {
+    return await _channel.invokeMethod('getFeatureVariant', {'flag': flag});
   }
 
   /// Register a callback to be notified when feature flags change.
@@ -401,14 +420,12 @@ class AppDNAExperimentsModule {
   }
 
   /// Get all experiment exposures for the current user.
-  List<Map<String, dynamic>> getExposures() {
-    final List<Map<String, dynamic>> result = [];
-    _channel.invokeMethod<List>('getExperimentExposures').then((data) {
-      if (data != null) {
-        result.addAll(data.map((e) => Map<String, dynamic>.from(e as Map)));
-      }
-    });
-    return result;
+  Future<List<Map<String, dynamic>>> getExposures() async {
+    final data = await _channel.invokeMethod<List>('getExperimentExposures');
+    if (data != null) {
+      return data.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    }
+    return [];
   }
 }
 
@@ -424,10 +441,14 @@ class AppDNAInAppMessagesModule {
     _channel.setMethodCallHandler((call) async {
       switch (call.method) {
         case 'onMessageShown':
-          delegate.onMessageShown(call.arguments['messageId']);
+          delegate.onMessageShown(call.arguments['messageId'], call.arguments['trigger'] ?? '');
           break;
         case 'onMessageAction':
-          delegate.onMessageAction(call.arguments['messageId'], call.arguments['action']);
+          delegate.onMessageAction(
+            call.arguments['messageId'],
+            call.arguments['action'],
+            call.arguments['data'] != null ? Map<String, dynamic>.from(call.arguments['data']) : null,
+          );
           break;
         case 'onMessageDismissed':
           delegate.onMessageDismissed(call.arguments['messageId']);
@@ -454,7 +475,9 @@ class AppDNASurveysModule {
           delegate.onSurveyPresented(call.arguments['surveyId']);
           break;
         case 'onSurveyCompleted':
-          delegate.onSurveyCompleted(call.arguments['surveyId'], Map<String, dynamic>.from(call.arguments['responses']));
+          final rawResponses = call.arguments['responses'] as List? ?? [];
+          final typedResponses = rawResponses.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+          delegate.onSurveyCompleted(call.arguments['surveyId'], typedResponses);
           break;
         case 'onSurveyDismissed':
           delegate.onSurveyDismissed(call.arguments['surveyId']);
@@ -479,7 +502,7 @@ class AppDNADeepLinksModule {
           call.arguments['url'],
           call.arguments['params'] != null
               ? Map<String, String>.from(call.arguments['params'])
-              : null,
+              : {},
         );
       }
     });
@@ -509,41 +532,41 @@ class OnboardingContext {
 
 /// Delegate for onboarding lifecycle events.
 abstract class AppDNAOnboardingDelegate {
-  void onStarted(String flowId);
-  void onStepChanged(String flowId, int stepIndex);
-  void onCompleted(String flowId);
-  void onDismissed(String flowId);
+  void onOnboardingStarted(String flowId);
+  void onOnboardingStepChanged(String flowId, String stepId, int stepIndex, int totalSteps);
+  void onOnboardingCompleted(String flowId, Map<String, dynamic> responses);
+  void onOnboardingDismissed(String flowId, int atStep);
 }
 
 /// Delegate for paywall lifecycle events.
 abstract class AppDNAPaywallDelegate {
-  void onPresented(String paywallId);
-  void onAction(String paywallId, String action);
-  void onPurchaseStarted(String paywallId, String productId);
-  void onPurchaseCompleted(String paywallId, String productId);
-  void onPurchaseFailed(String paywallId, String productId, String error);
-  void onDismissed(String paywallId);
+  void onPaywallPresented(String paywallId);
+  void onPaywallAction(String paywallId, String action);
+  void onPaywallPurchaseStarted(String paywallId, String productId);
+  void onPaywallPurchaseCompleted(String paywallId, String productId, Map<String, dynamic> transaction);
+  void onPaywallPurchaseFailed(String paywallId, String error);
+  void onPaywallDismissed(String paywallId);
 }
 
 /// Delegate for push notification events.
 abstract class AppDNAPushDelegate {
-  void onTokenRegistered(String token);
-  void onPushReceived(Map<String, dynamic> payload);
-  void onPushTapped(Map<String, dynamic> payload);
+  void onPushTokenRegistered(String token);
+  void onPushReceived(Map<String, dynamic> notification, bool inForeground);
+  void onPushTapped(Map<String, dynamic> notification, String? actionId);
 }
 
 /// Delegate for billing events.
 abstract class AppDNABillingDelegate {
-  void onPurchaseCompleted(String productId);
+  void onPurchaseCompleted(String productId, Map<String, dynamic> transaction);
   void onPurchaseFailed(String productId, String error);
   void onEntitlementsChanged(List<Map<String, dynamic>> entitlements);
-  void onRestoreCompleted(List<Map<String, dynamic>> entitlements);
+  void onRestoreCompleted(List<String> restoredProducts);
 }
 
 /// Delegate for in-app message events.
 abstract class AppDNAInAppMessageDelegate {
-  void onMessageShown(String messageId);
-  void onMessageAction(String messageId, String action);
+  void onMessageShown(String messageId, String trigger);
+  void onMessageAction(String messageId, String action, Map<String, dynamic>? data);
   void onMessageDismissed(String messageId);
   bool shouldShowMessage(String messageId);
 }
@@ -551,11 +574,11 @@ abstract class AppDNAInAppMessageDelegate {
 /// Delegate for survey events.
 abstract class AppDNASurveyDelegate {
   void onSurveyPresented(String surveyId);
-  void onSurveyCompleted(String surveyId, Map<String, dynamic> responses);
+  void onSurveyCompleted(String surveyId, List<Map<String, dynamic>> responses);
   void onSurveyDismissed(String surveyId);
 }
 
 /// Delegate for deep link events.
 abstract class AppDNADeepLinkDelegate {
-  void onDeepLinkReceived(String url, Map<String, String>? params);
+  void onDeepLinkReceived(String url, Map<String, String> params);
 }

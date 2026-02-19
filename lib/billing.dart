@@ -91,6 +91,35 @@ class AppDNABilling {
   static const EventChannel _entitlementChannel =
       EventChannel('com.appdna.sdk/entitlements');
 
+  /// Set a delegate to receive billing lifecycle callbacks (purchases, failures, restores).
+  static void setDelegate(dynamic delegate) {
+    _channel.setMethodCallHandler((call) async {
+      switch (call.method) {
+        case 'onPurchaseCompleted':
+          delegate.onPurchaseCompleted(call.arguments['productId']);
+          break;
+        case 'onPurchaseFailed':
+          delegate.onPurchaseFailed(
+              call.arguments['productId'], call.arguments['error']);
+          break;
+        case 'onEntitlementsChanged':
+          final List<Map<String, dynamic>> entitlements =
+              (call.arguments['entitlements'] as List)
+                  .map((e) => Map<String, dynamic>.from(e as Map))
+                  .toList();
+          delegate.onEntitlementsChanged(entitlements);
+          break;
+        case 'onRestoreCompleted':
+          final List<Map<String, dynamic>> entitlements =
+              (call.arguments['entitlements'] as List)
+                  .map((e) => Map<String, dynamic>.from(e as Map))
+                  .toList();
+          delegate.onRestoreCompleted(entitlements);
+          break;
+      }
+    });
+  }
+
   /// Purchase a product by its store product ID.
   ///
   /// On Android, pass [offerToken] for subscription offers (base plan tokens).
@@ -128,6 +157,14 @@ class AppDNABilling {
   /// Check if the user has an active subscription.
   static Future<bool> get hasActiveSubscription async {
     return await _channel.invokeMethod('hasActiveSubscription');
+  }
+
+  /// Get all current entitlements for the user.
+  static Future<List<Entitlement>> getEntitlements() async {
+    final result = await _channel.invokeMethod('getEntitlements');
+    return (result as List)
+        .map((e) => Entitlement.fromMap(Map<dynamic, dynamic>.from(e)))
+        .toList();
   }
 
   /// Stream of entitlement changes.

@@ -26,7 +26,7 @@ void main() {
     });
 
     test('PaywallContext can be created and serialized', () {
-      final ctx = PaywallContext(placement: 'settings');
+      const ctx = PaywallContext(placement: 'settings');
       final map = ctx.toMap();
       expect(map['placement'], 'settings');
     });

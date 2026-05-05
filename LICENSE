@@ -1,21 +1,173 @@
-MIT License
+AppDNA SDK — Proprietary License
+Copyright (c) 2026 AppDNA AI, Inc. All rights reserved.
 
-Copyright (c) 2026 AppDNA AI
+================================================================================
+NOTICE: PROPRIETARY AND CONFIDENTIAL
+================================================================================
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This repository and its contents (the "Licensed Work" or "SDK") are the
+proprietary and confidential property of AppDNA AI, Inc., a Delaware
+corporation ("AppDNA"). The Licensed Work is protected by United States
+and international copyright, trade secret, and other intellectual property
+laws.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+The Licensed Work is made publicly visible on GitHub for the limited
+purposes of (i) marketing and discovery, (ii) evaluation by prospective
+customers prior to entering into a Commercial Agreement (defined below)
+with AppDNA, and (iii) reference by existing customers operating under a
+Commercial Agreement. Public visibility does NOT constitute, and shall not
+be construed as, a grant of any license, express or implied, to use, copy,
+modify, merge, publish, distribute, sublicense, or sell the Licensed Work
+or any portion thereof.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+================================================================================
+PROHIBITED ACTIVITIES WITHOUT A COMMERCIAL AGREEMENT
+================================================================================
+
+Without a written Commercial Agreement with AppDNA, you may NOT:
+
+  1. Download, clone, fork, or otherwise obtain a copy of the Licensed
+     Work for use, including for development, testing, staging, or
+     production purposes;
+
+  2. Install, integrate, embed, link, or otherwise incorporate the
+     Licensed Work or any portion thereof into any software application,
+     library, service, product, or system;
+
+  3. Compile, build, execute, or run the Licensed Work or any
+     derivative thereof;
+
+  4. Modify, translate, adapt, or create derivative works based on the
+     Licensed Work;
+
+  5. Redistribute, sublicense, sell, rent, lease, or otherwise transfer
+     the Licensed Work or any portion thereof to any third party;
+
+  6. Reverse engineer, decompile, disassemble, or attempt to derive the
+     internal architecture, algorithms, or trade secrets of the Licensed
+     Work, except to the extent that this restriction is expressly
+     prohibited by applicable law notwithstanding this License;
+
+  7. Remove, obscure, or alter any copyright, trademark, or proprietary
+     notices contained in the Licensed Work; or
+
+  8. Use the Licensed Work to design, develop, train, or market any
+     product or service that competes with the AppDNA Console or SDK.
+
+================================================================================
+PERMITTED ACTIVITIES WITHOUT A COMMERCIAL AGREEMENT
+================================================================================
+
+In the absence of a Commercial Agreement, you are permitted only to:
+
+  (a) View this repository and its source files through the GitHub web
+      interface (or equivalent), for the purpose of evaluating whether to
+      enter into a Commercial Agreement with AppDNA; and
+
+  (b) Read the public documentation at https://docs.appdna.ai for the
+      same evaluation purpose.
+
+Any other access, copying, or use of the Licensed Work requires a
+Commercial Agreement.
+
+================================================================================
+HOW TO OBTAIN A COMMERCIAL AGREEMENT
+================================================================================
+
+Use of the Licensed Work in any manner other than as expressly permitted
+above requires a written Commercial Agreement with AppDNA, which may take
+one of the following forms:
+
+  - Self-serve customers: AppDNA's Terms of Service published at
+    https://appdna.ai/legal/terms, together with the AppDNA SDK End User
+    License Agreement available at https://appdna.ai/legal/sdk-eula
+    (collectively, the "Standard Terms"), accepted electronically.
+
+  - Enterprise customers: A signed Statement of Work or Master Services
+    Agreement with AppDNA.
+
+  - Where applicable: An AppDNA Data Processing Agreement.
+
+To request a Commercial Agreement, visit https://appdna.ai or contact
+sales@appdna.ai. For licensing or legal questions, contact
+legal@appdna.ai.
+
+================================================================================
+EXISTING CUSTOMERS
+================================================================================
+
+If you are a customer operating under a current Commercial Agreement with
+AppDNA, your rights to use the Licensed Work are governed by that
+Commercial Agreement, and not by this License. In the event of any
+conflict between this License and a Commercial Agreement, the Commercial
+Agreement controls. Continued use of the Licensed Work after termination
+or expiration of your Commercial Agreement is prohibited and constitutes
+copyright infringement.
+
+================================================================================
+PRIOR VERSIONS
+================================================================================
+
+Versions of the AppDNA Flutter SDK released prior to v1.0.1 were distributed
+under the MIT License, as indicated in the LICENSE file accompanying that
+specific version. Any rights you obtained under the MIT License remain
+governed by the MIT License with respect to those specific prior versions
+only. This License governs version 1.0.1 and all subsequent versions of
+the Licensed Work. The Licensor encourages all users of prior versions to
+upgrade to the current version, which may be required by the Commercial
+Agreement.
+
+================================================================================
+INTELLECTUAL PROPERTY; CONFIDENTIALITY
+================================================================================
+
+All right, title, and interest in and to the Licensed Work, including
+all intellectual property rights therein, are and shall remain the
+exclusive property of AppDNA. Unauthorized access, use, copying, or
+disclosure of the Licensed Work may constitute copyright infringement
+(17 U.S.C. § 101 et seq.), trade secret misappropriation (18 U.S.C.
+§ 1836 et seq. and the Delaware Uniform Trade Secrets Act), and breach
+of confidentiality, and may give rise to civil and criminal liability.
+
+================================================================================
+ENFORCEMENT
+================================================================================
+
+AppDNA reserves all rights and remedies available at law or in equity,
+including injunctive relief, monetary damages (including statutory
+damages and attorneys' fees under 17 U.S.C. § 504), and equitable relief
+for any unauthorized use of the Licensed Work. AppDNA's failure to
+enforce any provision of this License is not a waiver of any right.
+
+================================================================================
+DISCLAIMER OF WARRANTIES
+================================================================================
+
+THE LICENSED WORK IS PROVIDED ON AN "AS IS" BASIS. APPDNA DISCLAIMS ALL
+WARRANTIES, EXPRESS OR IMPLIED, INCLUDING IMPLIED WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+WITHOUT LIMITING THE FOREGOING, THE PERMITTED EVALUATION ACCESS UNDER
+THIS LICENSE IS PROVIDED FOR INFORMATIONAL PURPOSES ONLY AND DOES NOT
+CONSTITUTE A WARRANTY OF ANY KIND.
+
+================================================================================
+GOVERNING LAW
+================================================================================
+
+This License is governed by the laws of the State of Delaware, United
+States, without regard to its conflict-of-laws rules. Exclusive
+jurisdiction and venue lie in the state and federal courts located in
+Wilmington, Delaware (New Castle County).
+
+================================================================================
+CONTACT
+================================================================================
+
+AppDNA AI, Inc.
+Legal: legal@appdna.ai
+Sales: sales@appdna.ai
+Privacy: privacy@appdna.ai
+
+Copyright (c) 2026 AppDNA AI, Inc. All rights reserved.
+"AppDNA," "AppDNA AI," and the AppDNA logo are trademarks of
+AppDNA AI, Inc.

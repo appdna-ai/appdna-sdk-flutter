@@ -2,7 +2,7 @@
 // Source: src/lib/sdk-delegates/index.ts
 // Generator: scripts/sdk-codegen/emit-delegates.ts
 // Regenerate: pnpm sdk-codegen
-// Last codegen commit: 6fd004b5c21e59f4be687ce38d7fa348724a1370
+// Last codegen commit: 1f63af072d8c4839595d3795fb27f094282cc367
 
 /// Onboarding flow lifecycle observer. Observe-only — no return values, no async, no blocking.
 abstract class AppDNAOnboardingDelegate {
@@ -25,14 +25,14 @@ abstract class AppDNAPaywallDelegate {
 
   void onPaywallPurchaseCompleted(String paywallId, String productId, Map<String, dynamic> transaction);
 
-  /// error type: Swift Error / Kotlin Throwable / Dart dynamic / TS unknown.
-  void onPaywallPurchaseFailed(String paywallId, dynamic error);
+  /// error type: Swift Error / Kotlin Throwable / Dart Object / TS unknown.
+  void onPaywallPurchaseFailed(String paywallId, Object error);
 
   void onPaywallRestoreStarted(String paywallId);
 
   void onPaywallRestoreCompleted(String paywallId, List<String> restoredProductIds);
 
-  void onPaywallRestoreFailed(String paywallId, dynamic error);
+  void onPaywallRestoreFailed(String paywallId, Object error);
 
   void onPaywallDismissed(String paywallId);
 }
@@ -71,7 +71,7 @@ abstract class AppDNAPushDelegate {
 abstract class AppDNABillingDelegate {
   void onPurchaseCompleted(String productId, Map<String, dynamic> transaction);
 
-  void onPurchaseFailed(String productId, dynamic error);
+  void onPurchaseFailed(String productId, Object error);
 
   void onEntitlementsChanged(List<String> entitlements);
 }

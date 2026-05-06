@@ -229,6 +229,7 @@ void main() {
   // Same pattern as iOS SharedFixtureTests `knownDriverGaps`.
   const knownDriverGaps = <String>{
     'on_paywall_purchase_failed_error_type', // strongly-typed errorType discriminator simulation
+    'screen_view_emits_screen_field',        // notifyScreenAppeared channel call simulation
   };
 
   group('SharedFixtures (Flutter channel contract)', () {

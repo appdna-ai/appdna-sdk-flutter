@@ -213,8 +213,15 @@ void main() {
   });
 
   final fixtures = _loadFlutterFixtures();
-  expect(fixtures, isNotEmpty,
-      reason: 'No flutter-applicable fixtures found — runner is broken');
+
+  // SPEC-070-0 / SPEC-070-A — Flutter 3.41+ throws `OutsideTestException` for
+  // any `expect()` invoked outside a `test()` block. Promote the runner-self-
+  // check to its own `test()` so the assertion still runs but inside the test
+  // framework. Empty fixtures => single failing test, not a load-time crash.
+  test('runner self-check: flutter-applicable fixtures discovered', () {
+    expect(fixtures, isNotEmpty,
+        reason: 'No flutter-applicable fixtures found — runner is broken');
+  });
 
   group('SharedFixtures (Flutter channel contract)', () {
     for (final fixture in fixtures) {

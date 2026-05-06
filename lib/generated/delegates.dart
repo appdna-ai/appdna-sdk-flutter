@@ -2,7 +2,7 @@
 // Source: src/lib/sdk-delegates/index.ts
 // Generator: scripts/sdk-codegen/emit-delegates.ts
 // Regenerate: pnpm sdk-codegen
-// Last codegen commit: 1f044a080af4990ec055bb0373197136b2f263f1
+// Last codegen commit: 00c22ea0fc29a0e1d693a294bb51364467a2c298
 
 /// Onboarding flow lifecycle observer. Observe-only — no return values, no async, no blocking.
 abstract class AppDNAOnboardingDelegate {
@@ -88,10 +88,10 @@ abstract class AppDNADeepLinkDelegate {
 abstract class AppDNAScreenDelegate {
   void onScreenPresented(String screenId);
 
-  void onScreenDismissed(String screenId, ScreenResult result);
+  void onScreenDismissed(String screenId, Map<String, dynamic> result);
 
-  void onFlowCompleted(String flowId, FlowResult result);
+  void onFlowCompleted(String flowId, Map<String, dynamic> result);
 
   /// Veto. Return false to intercept the action and prevent default handling.
-  bool onScreenAction(String screenId, SectionAction action);
+  bool onScreenAction(String screenId, Map<String, dynamic> action);
 }

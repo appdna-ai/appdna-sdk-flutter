@@ -2,7 +2,7 @@
 // Source: src/lib/sdk-delegates/index.ts
 // Generator: scripts/sdk-codegen/emit-delegates.ts
 // Regenerate: pnpm sdk-codegen
-// Last codegen commit: 00c22ea0fc29a0e1d693a294bb51364467a2c298
+// Last codegen commit: 11054dcc57b2e4d4c42fa09501ed5f5141d97a29
 
 /// Onboarding flow lifecycle observer. Observe-only — no return values, no async, no blocking.
 abstract class AppDNAOnboardingDelegate {
@@ -74,6 +74,8 @@ abstract class AppDNABillingDelegate {
   void onPurchaseFailed(String productId, Object error);
 
   void onEntitlementsChanged(List<String> entitlements);
+
+  void onRestoreCompleted(List<String> restoredProductIds);
 }
 
 /// Deep link receiver with optional veto.

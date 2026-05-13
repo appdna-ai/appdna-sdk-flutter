@@ -2,6 +2,7 @@ library appdna_sdk;
 
 import 'dart:async';
 import 'package:flutter/services.dart';
+import 'generated/delegates.dart';
 import 'models/web_entitlement.dart';
 import 'models/deferred_deep_link.dart';
 import 'models/paywall_context.dart';
@@ -15,6 +16,19 @@ export 'models/survey_result.dart';
 export 'models/appdna_options.dart';
 export 'billing.dart';
 export 'push.dart';
+
+// Generated delegate interfaces are the canonical public API (SPEC-070-0).
+// These supersede the previously hand-written abstract classes that lived
+// at the bottom of this file. Customer code that implemented the old
+// classes continues to work because the generated ones are supersets.
+export 'generated/delegates.dart';
+
+// Generated DTOs. The `AppDNAEnvironment` DTO class collides with the
+// legacy `AppDNAEnvironment` enum below (kept for `AppDNA.configure(env:)`
+// backwards-compatibility), so we hide it from the public surface here.
+// Once consumers migrate off the enum, the hide clause can be dropped and
+// the enum renamed.
+export 'generated/dtos.dart' hide AppDNAEnvironment;
 
 enum AppDNAEnvironment { production, staging }
 
@@ -212,6 +226,9 @@ class AppDNA {
   /// Deep links module.
   static final deepLinks = AppDNADeepLinksModule._(_channel);
 
+  /// Screen (server-driven UI) module.
+  static final screen = AppDNAScreenModule._(_channel);
+
   /// Billing module.
   static AppDNABilling billing = AppDNABilling();
 
@@ -231,17 +248,38 @@ class AppDNA {
 }
 
 // MARK: - Module Namespace Classes (v1.0)
+//
+// Each module that owns a delegate listens on a dedicated EventChannel under
+// `com.appdna.sdk/events/<name>`. Native (iOS Swift + Android Kotlin) sinks
+// emit a `{ type: <delegateMethodName>, args: { ... } }` envelope. Dart
+// dispatches each envelope to the typed delegate method on the
+// customer-set delegate. Unknown `type` values are ignored silently so new
+// native events ship without forcing a Flutter package bump.
+//
+// Veto methods (e.g. `shouldShowMessage`, `shouldOpen`, `onScreenAction`)
+// are NOT wired in v1: native sinks only emit observe-only events, so the
+// `bool`-returning methods on the generated delegates are never invoked
+// through the event channel. Customer veto support is deferred to a
+// follow-up SPEC that needs a request/response bridge.
 
 /// Push notification module namespace.
 class AppDNAPushModule {
   final MethodChannel _channel;
+  AppDNAPushDelegate? _delegate;
+  StreamSubscription? _eventSub;
+  static const _events = EventChannel('com.appdna.sdk/events/push');
+
   AppDNAPushModule._(this._channel);
 
-  Future<void> setToken(String token) => _channel.invokeMethod('setPushToken', {'token': token});
-  Future<void> setPermission(bool granted) => _channel.invokeMethod('setPushPermission', {'granted': granted});
-  Future<void> trackDelivered(String pushId) => _channel.invokeMethod('trackPushDelivered', {'pushId': pushId});
+  Future<void> setToken(String token) =>
+      _channel.invokeMethod('setPushToken', {'token': token});
+  Future<void> setPermission(bool granted) =>
+      _channel.invokeMethod('setPushPermission', {'granted': granted});
+  Future<void> trackDelivered(String pushId) =>
+      _channel.invokeMethod('trackPushDelivered', {'pushId': pushId});
   Future<void> trackTapped(String pushId, {String? action}) =>
-      _channel.invokeMethod('trackPushTapped', {'pushId': pushId, if (action != null) 'action': action});
+      _channel.invokeMethod('trackPushTapped',
+          {'pushId': pushId, if (action != null) 'action': action});
 
   /// Request push notification permission from the OS.
   Future<bool> requestPermission() async {
@@ -253,105 +291,196 @@ class AppDNAPushModule {
   Future<String?> getToken() => _channel.invokeMethod<String>('getPushToken');
 
   /// Set a delegate to receive push notification callbacks.
-  void setDelegate(AppDNAPushDelegate delegate) {
-    _channel.setMethodCallHandler((call) async {
-      switch (call.method) {
-        case 'onPushTokenRegistered':
-          delegate.onPushTokenRegistered(call.arguments['token']);
-          break;
-        case 'onPushReceived':
-          delegate.onPushReceived(
-            Map<String, dynamic>.from(call.arguments['payload'] ?? call.arguments),
-            call.arguments['inForeground'] ?? false,
-          );
-          break;
-        case 'onPushTapped':
-          delegate.onPushTapped(
-            Map<String, dynamic>.from(call.arguments['payload'] ?? call.arguments),
-            call.arguments['actionId'],
-          );
-          break;
-      }
-    });
+  /// Pass `null` to clear the current delegate and stop listening.
+  void setDelegate(AppDNAPushDelegate? delegate) {
+    _delegate = delegate;
+    _eventSub?.cancel();
+    _eventSub = null;
+    if (delegate == null) return;
+    _eventSub = _events.receiveBroadcastStream().listen(_dispatch);
+  }
+
+  void _dispatch(dynamic raw) {
+    if (raw is! Map) return;
+    final type = raw['type'] as String?;
+    final args =
+        (raw['args'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    final d = _delegate;
+    if (d == null || type == null) return;
+    switch (type) {
+      case 'onPushTokenRegistered':
+        d.onPushTokenRegistered(args['token'] as String? ?? '');
+        break;
+      case 'onPushReceived':
+        d.onPushReceived(
+          (args['notification'] as Map?)?.cast<String, dynamic>() ??
+              <String, dynamic>{},
+          args['inForeground'] as bool? ?? false,
+        );
+        break;
+      case 'onPushTapped':
+        d.onPushTapped(
+          (args['notification'] as Map?)?.cast<String, dynamic>() ??
+              <String, dynamic>{},
+          args['actionId'] as String?,
+        );
+        break;
+      default:
+        // Unknown event — forward-compat with future native methods.
+        break;
+    }
   }
 }
 
 /// Onboarding module namespace.
 class AppDNAOnboardingModule {
   final MethodChannel _channel;
+  AppDNAOnboardingDelegate? _delegate;
+  StreamSubscription? _eventSub;
+  static const _events = EventChannel('com.appdna.sdk/events/onboarding');
+
   AppDNAOnboardingModule._(this._channel);
 
   Future<void> present(String flowId, {OnboardingContext? context}) =>
-      _channel.invokeMethod('presentOnboarding', {'flowId': flowId, if (context != null) 'context': context.toMap()});
+      _channel.invokeMethod('presentOnboarding', {
+        'flowId': flowId,
+        if (context != null) 'context': context.toMap(),
+      });
 
   /// Set a delegate to receive onboarding lifecycle callbacks.
-  void setDelegate(AppDNAOnboardingDelegate delegate) {
-    _channel.setMethodCallHandler((call) async {
-      switch (call.method) {
-        case 'onOnboardingStarted':
-          delegate.onOnboardingStarted(call.arguments['flowId']);
-          break;
-        case 'onOnboardingStepChanged':
-          delegate.onOnboardingStepChanged(
-            call.arguments['flowId'],
-            call.arguments['stepId'] ?? '',
-            call.arguments['stepIndex'],
-            call.arguments['totalSteps'] ?? 0,
-          );
-          break;
-        case 'onOnboardingCompleted':
-          delegate.onOnboardingCompleted(
-            call.arguments['flowId'],
-            Map<String, dynamic>.from(call.arguments['responses'] ?? {}),
-          );
-          break;
-        case 'onOnboardingDismissed':
-          delegate.onOnboardingDismissed(
-            call.arguments['flowId'],
-            call.arguments['atStep'] ?? 0,
-          );
-          break;
-      }
-    });
+  /// Pass `null` to clear the current delegate and stop listening.
+  void setDelegate(AppDNAOnboardingDelegate? delegate) {
+    _delegate = delegate;
+    _eventSub?.cancel();
+    _eventSub = null;
+    if (delegate == null) return;
+    _eventSub = _events.receiveBroadcastStream().listen(_dispatch);
+  }
+
+  void _dispatch(dynamic raw) {
+    if (raw is! Map) return;
+    final type = raw['type'] as String?;
+    final args =
+        (raw['args'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    final d = _delegate;
+    if (d == null || type == null) return;
+    switch (type) {
+      case 'onOnboardingStarted':
+        d.onOnboardingStarted(args['flowId'] as String? ?? '');
+        break;
+      case 'onOnboardingStepChanged':
+        d.onOnboardingStepChanged(
+          args['flowId'] as String? ?? '',
+          args['stepId'] as String? ?? '',
+          (args['stepIndex'] as num?)?.toInt() ?? 0,
+          (args['totalSteps'] as num?)?.toInt() ?? 0,
+        );
+        break;
+      case 'onOnboardingCompleted':
+        d.onOnboardingCompleted(
+          args['flowId'] as String? ?? '',
+          (args['responses'] as Map?)?.cast<String, dynamic>() ??
+              <String, dynamic>{},
+        );
+        break;
+      case 'onOnboardingDismissed':
+        d.onOnboardingDismissed(
+          args['flowId'] as String? ?? '',
+          (args['atStep'] as num?)?.toInt() ?? 0,
+        );
+        break;
+      default:
+        break;
+    }
   }
 }
 
 /// Paywall module namespace.
 class AppDNAPaywallModule {
   final MethodChannel _channel;
+  AppDNAPaywallDelegate? _delegate;
+  StreamSubscription? _eventSub;
+  static const _events = EventChannel('com.appdna.sdk/events/paywall');
+
   AppDNAPaywallModule._(this._channel);
 
   Future<void> present(String id, {PaywallContext? context}) =>
-      _channel.invokeMethod('presentPaywall', {'id': id, 'context': context?.toMap()});
+      _channel.invokeMethod(
+          'presentPaywall', {'id': id, 'context': context?.toMap()});
 
   /// Set a delegate to receive paywall lifecycle callbacks.
-  void setDelegate(AppDNAPaywallDelegate delegate) {
-    _channel.setMethodCallHandler((call) async {
-      switch (call.method) {
-        case 'onPaywallPresented':
-          delegate.onPaywallPresented(call.arguments['paywallId']);
-          break;
-        case 'onPaywallAction':
-          delegate.onPaywallAction(call.arguments['paywallId'], call.arguments['action']);
-          break;
-        case 'onPaywallPurchaseStarted':
-          delegate.onPaywallPurchaseStarted(call.arguments['paywallId'], call.arguments['productId']);
-          break;
-        case 'onPaywallPurchaseCompleted':
-          delegate.onPaywallPurchaseCompleted(
-            call.arguments['paywallId'],
-            call.arguments['productId'],
-            Map<String, dynamic>.from(call.arguments['transaction'] ?? {}),
-          );
-          break;
-        case 'onPaywallPurchaseFailed':
-          delegate.onPaywallPurchaseFailed(call.arguments['paywallId'], call.arguments['error'] ?? '');
-          break;
-        case 'onPaywallDismissed':
-          delegate.onPaywallDismissed(call.arguments['paywallId']);
-          break;
-      }
-    });
+  /// Pass `null` to clear the current delegate and stop listening.
+  void setDelegate(AppDNAPaywallDelegate? delegate) {
+    _delegate = delegate;
+    _eventSub?.cancel();
+    _eventSub = null;
+    if (delegate == null) return;
+    _eventSub = _events.receiveBroadcastStream().listen(_dispatch);
+  }
+
+  void _dispatch(dynamic raw) {
+    if (raw is! Map) return;
+    final type = raw['type'] as String?;
+    final args =
+        (raw['args'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    final d = _delegate;
+    if (d == null || type == null) return;
+    switch (type) {
+      case 'onPaywallPresented':
+        d.onPaywallPresented(args['paywallId'] as String? ?? '');
+        break;
+      case 'onPaywallAction':
+        d.onPaywallAction(
+          args['paywallId'] as String? ?? '',
+          args['action'] as String? ?? '',
+        );
+        break;
+      case 'onPaywallPurchaseStarted':
+        d.onPaywallPurchaseStarted(
+          args['paywallId'] as String? ?? '',
+          args['productId'] as String? ?? '',
+        );
+        break;
+      case 'onPaywallPurchaseCompleted':
+        d.onPaywallPurchaseCompleted(
+          args['paywallId'] as String? ?? '',
+          args['productId'] as String? ?? '',
+          (args['transaction'] as Map?)?.cast<String, dynamic>() ??
+              <String, dynamic>{},
+        );
+        break;
+      case 'onPaywallPurchaseFailed':
+        d.onPaywallPurchaseFailed(
+          args['paywallId'] as String? ?? '',
+          // Generated delegate types this as `Object`; native sends either a
+          // map ({ message, type }) or a raw string. Pass through verbatim.
+          args['error'] ?? const <String, dynamic>{},
+        );
+        break;
+      case 'onPaywallRestoreStarted':
+        d.onPaywallRestoreStarted(args['paywallId'] as String? ?? '');
+        break;
+      case 'onPaywallRestoreCompleted':
+        d.onPaywallRestoreCompleted(
+          args['paywallId'] as String? ?? '',
+          (args['restoredProductIds'] as List?)
+                  ?.map((e) => e.toString())
+                  .toList() ??
+              const <String>[],
+        );
+        break;
+      case 'onPaywallRestoreFailed':
+        d.onPaywallRestoreFailed(
+          args['paywallId'] as String? ?? '',
+          args['error'] ?? const <String, dynamic>{},
+        );
+        break;
+      case 'onPaywallDismissed':
+        d.onPaywallDismissed(args['paywallId'] as String? ?? '');
+        break;
+      default:
+        break;
+    }
   }
 }
 
@@ -360,7 +489,8 @@ class AppDNARemoteConfigModule {
   final MethodChannel _channel;
   AppDNARemoteConfigModule._(this._channel);
 
-  Future<dynamic> get(String key) => _channel.invokeMethod('getRemoteConfig', {'key': key});
+  Future<dynamic> get(String key) =>
+      _channel.invokeMethod('getRemoteConfig', {'key': key});
   Future<void> refresh() => _channel.invokeMethod('refreshConfig');
 
   /// Get all remote config values as a map.
@@ -388,7 +518,8 @@ class AppDNAFeaturesModule {
   AppDNAFeaturesModule._(this._channel);
 
   Future<bool> isEnabled(String flag) async {
-    final result = await _channel.invokeMethod<bool>('isFeatureEnabled', {'flag': flag});
+    final result =
+        await _channel.invokeMethod<bool>('isFeatureEnabled', {'flag': flag});
     return result ?? false;
   }
 
@@ -413,9 +544,11 @@ class AppDNAExperimentsModule {
   AppDNAExperimentsModule._(this._channel);
 
   Future<String?> getVariant(String experimentId) =>
-      _channel.invokeMethod<String>('getExperimentVariant', {'experimentId': experimentId});
+      _channel.invokeMethod<String>(
+          'getExperimentVariant', {'experimentId': experimentId});
   Future<bool> isInVariant(String experimentId, String variantId) async {
-    final result = await _channel.invokeMethod<bool>('isInVariant', {'experimentId': experimentId, 'variantId': variantId});
+    final result = await _channel.invokeMethod<bool>('isInVariant',
+        {'experimentId': experimentId, 'variantId': variantId});
     return result ?? false;
   }
 
@@ -432,80 +565,227 @@ class AppDNAExperimentsModule {
 /// In-app messages module namespace.
 class AppDNAInAppMessagesModule {
   final MethodChannel _channel;
+  AppDNAInAppMessageDelegate? _delegate;
+  StreamSubscription? _eventSub;
+  static const _events = EventChannel('com.appdna.sdk/events/in_app_message');
+
   AppDNAInAppMessagesModule._(this._channel);
 
-  Future<void> suppressDisplay(bool suppress) => _channel.invokeMethod('suppressMessages', {'suppress': suppress});
+  Future<void> suppressDisplay(bool suppress) =>
+      _channel.invokeMethod('suppressMessages', {'suppress': suppress});
 
   /// Set a delegate to receive in-app message lifecycle callbacks.
-  void setDelegate(AppDNAInAppMessageDelegate delegate) {
-    _channel.setMethodCallHandler((call) async {
-      switch (call.method) {
-        case 'onMessageShown':
-          delegate.onMessageShown(call.arguments['messageId'], call.arguments['trigger'] ?? '');
-          break;
-        case 'onMessageAction':
-          delegate.onMessageAction(
-            call.arguments['messageId'],
-            call.arguments['action'],
-            call.arguments['data'] != null ? Map<String, dynamic>.from(call.arguments['data']) : null,
-          );
-          break;
-        case 'onMessageDismissed':
-          delegate.onMessageDismissed(call.arguments['messageId']);
-          break;
-        case 'shouldShowMessage':
-          return delegate.shouldShowMessage(call.arguments['messageId']);
-      }
-    });
+  /// Pass `null` to clear the current delegate and stop listening.
+  ///
+  /// Note: `shouldShowMessage` (the veto method on the generated
+  /// `AppDNAInAppMessageDelegate`) is NOT invoked through the event channel
+  /// in v1 — event channels are one-way and cannot deliver return values to
+  /// native. Veto support requires a request/response bridge (deferred to a
+  /// follow-up SPEC). For now the method exists on the interface for source
+  /// compatibility but native sinks always proceed with display.
+  void setDelegate(AppDNAInAppMessageDelegate? delegate) {
+    _delegate = delegate;
+    _eventSub?.cancel();
+    _eventSub = null;
+    if (delegate == null) return;
+    _eventSub = _events.receiveBroadcastStream().listen(_dispatch);
+  }
+
+  void _dispatch(dynamic raw) {
+    if (raw is! Map) return;
+    final type = raw['type'] as String?;
+    final args =
+        (raw['args'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    final d = _delegate;
+    if (d == null || type == null) return;
+    switch (type) {
+      case 'onMessagePresented':
+        d.onMessagePresented(args['messageId'] as String? ?? '');
+        break;
+      case 'onMessageAction':
+        d.onMessageAction(
+          args['messageId'] as String? ?? '',
+          args['action'] as String? ?? '',
+        );
+        break;
+      case 'onMessageDismissed':
+        d.onMessageDismissed(args['messageId'] as String? ?? '');
+        break;
+      case 'shouldShowMessage':
+        // Veto observe-only in v1 — native already decided to show, this is
+        // notification-after-the-fact for telemetry parity. Customer return
+        // value is intentionally ignored.
+        d.shouldShowMessage(args['messageId'] as String? ?? '');
+        break;
+      default:
+        break;
+    }
   }
 }
 
 /// Surveys module namespace.
 class AppDNASurveysModule {
   final MethodChannel _channel;
+  AppDNASurveyDelegate? _delegate;
+  StreamSubscription? _eventSub;
+  static const _events = EventChannel('com.appdna.sdk/events/survey');
+
   AppDNASurveysModule._(this._channel);
 
-  Future<void> present(String surveyId) => _channel.invokeMethod('presentSurvey', {'surveyId': surveyId});
+  Future<void> present(String surveyId) =>
+      _channel.invokeMethod('presentSurvey', {'surveyId': surveyId});
 
   /// Set a delegate to receive survey lifecycle callbacks.
-  void setDelegate(AppDNASurveyDelegate delegate) {
-    _channel.setMethodCallHandler((call) async {
-      switch (call.method) {
-        case 'onSurveyPresented':
-          delegate.onSurveyPresented(call.arguments['surveyId']);
-          break;
-        case 'onSurveyCompleted':
-          final rawResponses = call.arguments['responses'] as List? ?? [];
-          final typedResponses = rawResponses.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-          delegate.onSurveyCompleted(call.arguments['surveyId'], typedResponses);
-          break;
-        case 'onSurveyDismissed':
-          delegate.onSurveyDismissed(call.arguments['surveyId']);
-          break;
-      }
-    });
+  /// Pass `null` to clear the current delegate and stop listening.
+  void setDelegate(AppDNASurveyDelegate? delegate) {
+    _delegate = delegate;
+    _eventSub?.cancel();
+    _eventSub = null;
+    if (delegate == null) return;
+    _eventSub = _events.receiveBroadcastStream().listen(_dispatch);
+  }
+
+  void _dispatch(dynamic raw) {
+    if (raw is! Map) return;
+    final type = raw['type'] as String?;
+    final args =
+        (raw['args'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    final d = _delegate;
+    if (d == null || type == null) return;
+    switch (type) {
+      case 'onSurveyPresented':
+        d.onSurveyPresented(args['surveyId'] as String? ?? '');
+        break;
+      case 'onSurveySubmitted':
+        d.onSurveySubmitted(
+          args['surveyId'] as String? ?? '',
+          (args['response'] as Map?)?.cast<String, dynamic>() ??
+              <String, dynamic>{},
+        );
+        break;
+      case 'onSurveyDismissed':
+        d.onSurveyDismissed(args['surveyId'] as String? ?? '');
+        break;
+      default:
+        break;
+    }
   }
 }
 
 /// Deep links module namespace.
 class AppDNADeepLinksModule {
   final MethodChannel _channel;
+  AppDNADeepLinkDelegate? _delegate;
+  StreamSubscription? _eventSub;
+  static const _events = EventChannel('com.appdna.sdk/events/deep_link');
+
   AppDNADeepLinksModule._(this._channel);
 
-  Future<void> handleURL(String url) => _channel.invokeMethod('handleDeepLink', {'url': url});
+  Future<void> handleURL(String url) =>
+      _channel.invokeMethod('handleDeepLink', {'url': url});
 
   /// Set a delegate to receive deep link callbacks.
-  void setDelegate(AppDNADeepLinkDelegate delegate) {
-    _channel.setMethodCallHandler((call) async {
-      if (call.method == 'onDeepLinkReceived') {
-        delegate.onDeepLinkReceived(
-          call.arguments['url'],
-          call.arguments['params'] != null
-              ? Map<String, String>.from(call.arguments['params'])
-              : {},
+  /// Pass `null` to clear the current delegate and stop listening.
+  ///
+  /// Note: `shouldOpen` (the veto method on `AppDNADeepLinkDelegate`) is
+  /// observe-only in v1 — see `AppDNAInAppMessagesModule.setDelegate` for
+  /// rationale. Native sinks proceed with default handling regardless of
+  /// the customer's return value.
+  void setDelegate(AppDNADeepLinkDelegate? delegate) {
+    _delegate = delegate;
+    _eventSub?.cancel();
+    _eventSub = null;
+    if (delegate == null) return;
+    _eventSub = _events.receiveBroadcastStream().listen(_dispatch);
+  }
+
+  void _dispatch(dynamic raw) {
+    if (raw is! Map) return;
+    final type = raw['type'] as String?;
+    final args =
+        (raw['args'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    final d = _delegate;
+    if (d == null || type == null) return;
+    switch (type) {
+      case 'onDeepLinkReceived':
+        d.onDeepLinkReceived(
+          args['url'] as String? ?? '',
+          (args['params'] as Map?)?.cast<String, dynamic>() ??
+              <String, dynamic>{},
         );
-      }
-    });
+        break;
+      case 'shouldOpen':
+        // Veto observe-only in v1 — see setDelegate doc.
+        d.shouldOpen(
+          args['url'] as String? ?? '',
+          (args['params'] as Map?)?.cast<String, dynamic>() ??
+              <String, dynamic>{},
+        );
+        break;
+      default:
+        break;
+    }
+  }
+}
+
+/// Server-driven screen module namespace.
+/// Forwards `com.appdna.sdk/events/screen` envelopes to an
+/// `AppDNAScreenDelegate`. `onScreenAction` veto is observe-only in v1.
+class AppDNAScreenModule {
+  // ignore: unused_field
+  final MethodChannel _channel;
+  AppDNAScreenDelegate? _delegate;
+  StreamSubscription? _eventSub;
+  static const _events = EventChannel('com.appdna.sdk/events/screen');
+
+  AppDNAScreenModule._(this._channel);
+
+  /// Set a delegate to receive server-driven screen lifecycle callbacks.
+  /// Pass `null` to clear the current delegate and stop listening.
+  void setDelegate(AppDNAScreenDelegate? delegate) {
+    _delegate = delegate;
+    _eventSub?.cancel();
+    _eventSub = null;
+    if (delegate == null) return;
+    _eventSub = _events.receiveBroadcastStream().listen(_dispatch);
+  }
+
+  void _dispatch(dynamic raw) {
+    if (raw is! Map) return;
+    final type = raw['type'] as String?;
+    final args =
+        (raw['args'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    final d = _delegate;
+    if (d == null || type == null) return;
+    switch (type) {
+      case 'onScreenPresented':
+        d.onScreenPresented(args['screenId'] as String? ?? '');
+        break;
+      case 'onScreenDismissed':
+        d.onScreenDismissed(
+          args['screenId'] as String? ?? '',
+          (args['result'] as Map?)?.cast<String, dynamic>() ??
+              <String, dynamic>{},
+        );
+        break;
+      case 'onFlowCompleted':
+        d.onFlowCompleted(
+          args['flowId'] as String? ?? '',
+          (args['result'] as Map?)?.cast<String, dynamic>() ??
+              <String, dynamic>{},
+        );
+        break;
+      case 'onScreenAction':
+        // Veto observe-only in v1 — return value not propagated to native.
+        d.onScreenAction(
+          args['screenId'] as String? ?? '',
+          (args['action'] as Map?)?.cast<String, dynamic>() ??
+              <String, dynamic>{},
+        );
+        break;
+      default:
+        break;
+    }
   }
 }
 
@@ -526,59 +806,4 @@ class OnboardingContext {
     if (userProperties != null) 'userProperties': userProperties,
     if (experimentOverrides != null) 'experimentOverrides': experimentOverrides,
   };
-}
-
-// MARK: - Delegate Abstract Classes (SPEC-041)
-
-/// Delegate for onboarding lifecycle events.
-abstract class AppDNAOnboardingDelegate {
-  void onOnboardingStarted(String flowId);
-  void onOnboardingStepChanged(String flowId, String stepId, int stepIndex, int totalSteps);
-  void onOnboardingCompleted(String flowId, Map<String, dynamic> responses);
-  void onOnboardingDismissed(String flowId, int atStep);
-}
-
-/// Delegate for paywall lifecycle events.
-abstract class AppDNAPaywallDelegate {
-  void onPaywallPresented(String paywallId);
-  void onPaywallAction(String paywallId, String action);
-  void onPaywallPurchaseStarted(String paywallId, String productId);
-  void onPaywallPurchaseCompleted(String paywallId, String productId, Map<String, dynamic> transaction);
-  void onPaywallPurchaseFailed(String paywallId, String error);
-  void onPaywallDismissed(String paywallId);
-}
-
-/// Delegate for push notification events.
-abstract class AppDNAPushDelegate {
-  void onPushTokenRegistered(String token);
-  void onPushReceived(Map<String, dynamic> notification, bool inForeground);
-  void onPushTapped(Map<String, dynamic> notification, String? actionId);
-}
-
-/// Delegate for billing events.
-abstract class AppDNABillingDelegate {
-  void onPurchaseCompleted(String productId, Map<String, dynamic> transaction);
-  void onPurchaseFailed(String productId, String error);
-  void onEntitlementsChanged(List<Map<String, dynamic>> entitlements);
-  void onRestoreCompleted(List<String> restoredProducts);
-}
-
-/// Delegate for in-app message events.
-abstract class AppDNAInAppMessageDelegate {
-  void onMessageShown(String messageId, String trigger);
-  void onMessageAction(String messageId, String action, Map<String, dynamic>? data);
-  void onMessageDismissed(String messageId);
-  bool shouldShowMessage(String messageId);
-}
-
-/// Delegate for survey events.
-abstract class AppDNASurveyDelegate {
-  void onSurveyPresented(String surveyId);
-  void onSurveyCompleted(String surveyId, List<Map<String, dynamic>> responses);
-  void onSurveyDismissed(String surveyId);
-}
-
-/// Delegate for deep link events.
-abstract class AppDNADeepLinkDelegate {
-  void onDeepLinkReceived(String url, Map<String, String> params);
 }

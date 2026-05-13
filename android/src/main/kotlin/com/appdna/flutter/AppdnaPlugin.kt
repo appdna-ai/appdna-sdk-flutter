@@ -3,10 +3,23 @@ package com.appdna.flutter
 import android.app.Activity
 import android.content.Context
 import ai.appdna.sdk.AppDNA
+import ai.appdna.sdk.AppDNABillingDelegate
+import ai.appdna.sdk.AppDNAInAppMessageDelegate
 import ai.appdna.sdk.AppDNAOptions
+import ai.appdna.sdk.AppDNAPushDelegate
+import ai.appdna.sdk.AppDNADeepLinkDelegate
+import ai.appdna.sdk.AppDNASurveyDelegate
 import ai.appdna.sdk.Environment
 import ai.appdna.sdk.LogLevel
+import ai.appdna.sdk.PushPayload
+import ai.appdna.sdk.SurveyResponse
+import ai.appdna.sdk.TransactionInfo
+import ai.appdna.sdk.billing.Entitlement
+import ai.appdna.sdk.onboarding.AppDNAOnboardingDelegate
+import ai.appdna.sdk.paywalls.AppDNAPaywallDelegate
+import ai.appdna.sdk.paywalls.PaywallAction
 import ai.appdna.sdk.paywalls.PaywallContext
+import ai.appdna.sdk.screens.AppDNAScreenDelegate
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -27,6 +40,48 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
     private var eventSink: EventChannel.EventSink? = null
     private var entitlementEventSink: EventChannel.EventSink? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+
+    // -------------------------------------------------------------------------
+    // Native -> Dart delegate event channels (SDK delegate parity).
+    //
+    // Channel layout per Flutter SDK contract:
+    //   com.appdna.sdk/events/<module>          (one-way, native -> Dart)
+    //   com.appdna.sdk/sync_callbacks           (MethodChannel for veto hooks)
+    //
+    // Each event payload is { "type": "<delegateMethodName>", "args": { ... } }.
+    // For Throwable args we serialize as { "message": String, "type": String }.
+    // Complex DTOs (TransactionInfo, PushPayload, Entitlement) are converted
+    // to Map<String, Any?> inline so Flutter's StandardMethodCodec can serialize.
+    // -------------------------------------------------------------------------
+    private lateinit var paywallEventChannel: EventChannel
+    private lateinit var onboardingEventChannel: EventChannel
+    private lateinit var surveyEventChannel: EventChannel
+    private lateinit var inAppMessageEventChannel: EventChannel
+    private lateinit var pushEventChannel: EventChannel
+    private lateinit var billingEventChannel: EventChannel
+    private lateinit var deepLinkEventChannel: EventChannel
+    private lateinit var screenEventChannel: EventChannel
+    private lateinit var syncCallbackChannel: MethodChannel
+
+    private var paywallEventSink: EventChannel.EventSink? = null
+    private var onboardingEventSink: EventChannel.EventSink? = null
+    private var surveyEventSink: EventChannel.EventSink? = null
+    private var inAppMessageEventSink: EventChannel.EventSink? = null
+    private var pushEventSink: EventChannel.EventSink? = null
+    private var billingDelegateEventSink: EventChannel.EventSink? = null
+    private var deepLinkEventSink: EventChannel.EventSink? = null
+    private var screenEventSink: EventChannel.EventSink? = null
+
+    // Forwarder instances we install on the native modules. Kept as properties
+    // so onCancel() can call setDelegate(null) cleanly on stream tear-down.
+    private var paywallForwarder: PaywallDelegateForwarder? = null
+    private var onboardingForwarder: OnboardingDelegateForwarder? = null
+    private var surveyForwarder: SurveyDelegateForwarder? = null
+    private var inAppMessageForwarder: InAppMessageDelegateForwarder? = null
+    private var pushForwarder: PushDelegateForwarder? = null
+    private var billingForwarder: BillingDelegateForwarder? = null
+    private var deepLinkForwarder: DeepLinkDelegateForwarder? = null
+    private var screenForwarder: ScreenDelegateForwarder? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         context = binding.applicationContext
@@ -51,6 +106,148 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                 entitlementEventSink = null
             }
         })
+
+        // -- Native -> Dart delegate event channels --
+        // Eight observe-only streams. onListen wires a forwarder into the
+        // native module's setDelegate(); onCancel removes it. The forwarders
+        // marshal native callback args into the shared
+        // { "type": ..., "args": {...} } envelope and push them through the
+        // sink on the main thread.
+        paywallEventChannel = EventChannel(binding.binaryMessenger, "com.appdna.sdk/events/paywall")
+        paywallEventChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                paywallEventSink = events
+                val fwd = PaywallDelegateForwarder()
+                paywallForwarder = fwd
+                AppDNA.paywall.setDelegate(fwd)
+            }
+            override fun onCancel(arguments: Any?) {
+                AppDNA.paywall.setDelegate(null)
+                paywallForwarder = null
+                paywallEventSink = null
+            }
+        })
+
+        onboardingEventChannel = EventChannel(binding.binaryMessenger, "com.appdna.sdk/events/onboarding")
+        onboardingEventChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                onboardingEventSink = events
+                val fwd = OnboardingDelegateForwarder()
+                onboardingForwarder = fwd
+                // Note: OnboardingModule.setDelegate stores the listener and
+                // hands it to AppDNA.presentOnboarding(...) at present-time.
+                // Dart code must subscribe to this stream BEFORE calling
+                // presentOnboarding() for the callbacks to flow.
+                AppDNA.onboarding.setDelegate(fwd)
+            }
+            override fun onCancel(arguments: Any?) {
+                AppDNA.onboarding.setDelegate(null)
+                onboardingForwarder = null
+                onboardingEventSink = null
+            }
+        })
+
+        surveyEventChannel = EventChannel(binding.binaryMessenger, "com.appdna.sdk/events/survey")
+        surveyEventChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                surveyEventSink = events
+                val fwd = SurveyDelegateForwarder()
+                surveyForwarder = fwd
+                AppDNA.surveys.setDelegate(fwd)
+            }
+            override fun onCancel(arguments: Any?) {
+                AppDNA.surveys.setDelegate(null)
+                surveyForwarder = null
+                surveyEventSink = null
+            }
+        })
+
+        inAppMessageEventChannel = EventChannel(binding.binaryMessenger, "com.appdna.sdk/events/in_app_message")
+        inAppMessageEventChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                inAppMessageEventSink = events
+                val fwd = InAppMessageDelegateForwarder()
+                inAppMessageForwarder = fwd
+                AppDNA.inAppMessages.setDelegate(fwd)
+            }
+            override fun onCancel(arguments: Any?) {
+                AppDNA.inAppMessages.setDelegate(null)
+                inAppMessageForwarder = null
+                inAppMessageEventSink = null
+            }
+        })
+
+        pushEventChannel = EventChannel(binding.binaryMessenger, "com.appdna.sdk/events/push")
+        pushEventChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                pushEventSink = events
+                val fwd = PushDelegateForwarder()
+                pushForwarder = fwd
+                AppDNA.push.setDelegate(fwd)
+            }
+            override fun onCancel(arguments: Any?) {
+                AppDNA.push.setDelegate(null)
+                pushForwarder = null
+                pushEventSink = null
+            }
+        })
+
+        billingEventChannel = EventChannel(binding.binaryMessenger, "com.appdna.sdk/events/billing")
+        billingEventChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                billingDelegateEventSink = events
+                val fwd = BillingDelegateForwarder()
+                billingForwarder = fwd
+                AppDNA.billing.setDelegate(fwd)
+            }
+            override fun onCancel(arguments: Any?) {
+                AppDNA.billing.setDelegate(null)
+                billingForwarder = null
+                billingDelegateEventSink = null
+            }
+        })
+
+        deepLinkEventChannel = EventChannel(binding.binaryMessenger, "com.appdna.sdk/events/deep_link")
+        deepLinkEventChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                deepLinkEventSink = events
+                val fwd = DeepLinkDelegateForwarder()
+                deepLinkForwarder = fwd
+                AppDNA.deepLinks.setDelegate(fwd)
+            }
+            override fun onCancel(arguments: Any?) {
+                AppDNA.deepLinks.setDelegate(null)
+                deepLinkForwarder = null
+                deepLinkEventSink = null
+            }
+        })
+
+        screenEventChannel = EventChannel(binding.binaryMessenger, "com.appdna.sdk/events/screen")
+        screenEventChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                screenEventSink = events
+                val fwd = ScreenDelegateForwarder()
+                screenForwarder = fwd
+                AppDNA.screenDelegate = fwd
+            }
+            override fun onCancel(arguments: Any?) {
+                AppDNA.screenDelegate = null
+                screenForwarder = null
+                screenEventSink = null
+            }
+        })
+
+        // Synchronous-veto MethodChannel. v1 only ships the InAppMessage
+        // observe path (the veto fires through the in_app_message event
+        // channel and the native side defaults shouldShowMessage() to true).
+        // Real veto plumbing requires bridging Kotlin sync return -> Dart
+        // async invokeMethod -> Kotlin CompletableDeferred, which is left
+        // to a follow-up. Channel is registered now so the wire is reserved.
+        syncCallbackChannel = MethodChannel(binding.binaryMessenger, "com.appdna.sdk/sync_callbacks")
+        syncCallbackChannel.setMethodCallHandler { _, result ->
+            // Reserved for future synchronous-veto handshakes from Dart.
+            result.notImplemented()
+        }
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -58,6 +255,25 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
         eventChannel.setStreamHandler(null)
         billingChannel.setMethodCallHandler(null)
         entitlementEventChannel.setStreamHandler(null)
+        // Tear down delegate streams and unregister forwarders so the native
+        // modules don't keep callbacks alive past Flutter engine teardown.
+        paywallEventChannel.setStreamHandler(null)
+        onboardingEventChannel.setStreamHandler(null)
+        surveyEventChannel.setStreamHandler(null)
+        inAppMessageEventChannel.setStreamHandler(null)
+        pushEventChannel.setStreamHandler(null)
+        billingEventChannel.setStreamHandler(null)
+        deepLinkEventChannel.setStreamHandler(null)
+        screenEventChannel.setStreamHandler(null)
+        syncCallbackChannel.setMethodCallHandler(null)
+        runCatching { AppDNA.paywall.setDelegate(null) }
+        runCatching { AppDNA.onboarding.setDelegate(null) }
+        runCatching { AppDNA.surveys.setDelegate(null) }
+        runCatching { AppDNA.inAppMessages.setDelegate(null) }
+        runCatching { AppDNA.push.setDelegate(null) }
+        runCatching { AppDNA.billing.setDelegate(null) }
+        runCatching { AppDNA.deepLinks.setDelegate(null) }
+        runCatching { AppDNA.screenDelegate = null }
         scope.cancel()
     }
 
@@ -265,5 +481,383 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
     }
     override fun onCancel(arguments: Any?) {
         eventSink = null
+    }
+
+    // =========================================================================
+    // Native -> Dart delegate forwarders.
+    //
+    // Each forwarder implements the native delegate interface and pushes a
+    // shared { "type": <method>, "args": { ... } } envelope into the matching
+    // EventChannel sink. Event sinks are not thread-safe off the main thread,
+    // so every send hops onto the main dispatcher via `scope.launch` (the
+    // CoroutineScope is built with Dispatchers.Main + SupervisorJob above).
+    //
+    // For complex DTOs we serialize inline to Map<String, Any?> rather than
+    // depending on an extension method `toMap()` that may not exist for every
+    // type. Throwables collapse to { "message": String, "type": String }.
+    // =========================================================================
+
+    private fun emit(sink: EventChannel.EventSink?, type: String, args: Map<String, Any?>) {
+        val target = sink ?: return
+        // Coroutine launched on main dispatcher so we can safely call
+        // EventChannel.EventSink#success regardless of which thread the
+        // native callback fired from.
+        scope.launch {
+            try {
+                target.success(mapOf("type" to type, "args" to args))
+            } catch (e: Throwable) {
+                // Sink may be closed mid-flight if Dart cancels the stream.
+                // Swallow so a stale callback doesn't crash the host app.
+            }
+        }
+    }
+
+    private fun throwableToMap(t: Throwable): Map<String, Any?> = mapOf(
+        "message" to (t.message ?: ""),
+        "type" to (t::class.java.simpleName ?: "Throwable"),
+    )
+
+    private fun transactionToMap(tx: TransactionInfo): Map<String, Any?> = mapOf(
+        "transactionId" to tx.transactionId,
+        "productId" to tx.productId,
+        "purchaseDate" to tx.purchaseDate,
+        "environment" to tx.environment,
+    )
+
+    private fun entitlementToMap(e: Entitlement): Map<String, Any?> = mapOf(
+        "productId" to e.productId,
+        "store" to e.store,
+        "status" to e.status,
+        "expiresAt" to e.expiresAt,
+        "isTrial" to e.isTrial,
+        "offerType" to e.offerType,
+    )
+
+    private fun pushPayloadToMap(p: PushPayload): Map<String, Any?> = mapOf(
+        "pushId" to p.pushId,
+        "title" to p.title,
+        "body" to p.body,
+        "imageUrl" to p.imageUrl,
+        "data" to p.data,
+        "action" to p.action?.let { mapOf("type" to it.type, "value" to it.value) },
+    )
+
+    private fun surveyResponseToMap(r: SurveyResponse): Map<String, Any?> = mapOf(
+        "questionId" to r.questionId,
+        "answer" to r.answer,
+        "metadata" to r.metadata,
+    )
+
+    /** All 9 standard paywall lifecycle methods + post-purchase hooks. */
+    private inner class PaywallDelegateForwarder : AppDNAPaywallDelegate {
+        override fun onPaywallPresented(paywallId: String) {
+            emit(paywallEventSink, "onPaywallPresented", mapOf("paywallId" to paywallId))
+        }
+
+        override fun onPaywallAction(paywallId: String, action: PaywallAction) {
+            emit(
+                paywallEventSink,
+                "onPaywallAction",
+                mapOf("paywallId" to paywallId, "action" to action.value),
+            )
+        }
+
+        override fun onPaywallPurchaseStarted(paywallId: String, productId: String) {
+            emit(
+                paywallEventSink,
+                "onPaywallPurchaseStarted",
+                mapOf("paywallId" to paywallId, "productId" to productId),
+            )
+        }
+
+        override fun onPaywallPurchaseCompleted(
+            paywallId: String,
+            productId: String,
+            transaction: TransactionInfo,
+        ) {
+            emit(
+                paywallEventSink,
+                "onPaywallPurchaseCompleted",
+                mapOf(
+                    "paywallId" to paywallId,
+                    "productId" to productId,
+                    "transaction" to transactionToMap(transaction),
+                ),
+            )
+        }
+
+        override fun onPaywallPurchaseFailed(paywallId: String, error: Throwable) {
+            emit(
+                paywallEventSink,
+                "onPaywallPurchaseFailed",
+                mapOf("paywallId" to paywallId, "error" to throwableToMap(error)),
+            )
+        }
+
+        override fun onPaywallRestoreStarted(paywallId: String) {
+            emit(paywallEventSink, "onPaywallRestoreStarted", mapOf("paywallId" to paywallId))
+        }
+
+        override fun onPaywallRestoreCompleted(paywallId: String, productIds: List<String>) {
+            emit(
+                paywallEventSink,
+                "onPaywallRestoreCompleted",
+                mapOf("paywallId" to paywallId, "restoredProductIds" to productIds),
+            )
+        }
+
+        override fun onPaywallRestoreFailed(paywallId: String, error: Throwable) {
+            emit(
+                paywallEventSink,
+                "onPaywallRestoreFailed",
+                mapOf("paywallId" to paywallId, "error" to throwableToMap(error)),
+            )
+        }
+
+        override fun onPaywallDismissed(paywallId: String) {
+            emit(paywallEventSink, "onPaywallDismissed", mapOf("paywallId" to paywallId))
+        }
+
+        override fun onPostPurchaseDeepLink(paywallId: String, url: String) {
+            emit(
+                paywallEventSink,
+                "onPostPurchaseDeepLink",
+                mapOf("paywallId" to paywallId, "url" to url),
+            )
+        }
+
+        override fun onPostPurchaseNextStep(paywallId: String) {
+            emit(paywallEventSink, "onPostPurchaseNextStep", mapOf("paywallId" to paywallId))
+        }
+
+        // onPromoCodeSubmit is NOT forwarded: it's a synchronous validation
+        // callback (host must invoke the completion handler with true/false
+        // before the Activity advances). Bridging that across the event-channel
+        // boundary requires a CompletableDeferred handshake — left to a
+        // follow-up. Default impl already returns false (= reject promo),
+        // matching the iOS observe-only event-channel contract for v1.
+    }
+
+    /** Onboarding observe-only callbacks (4 methods). */
+    private inner class OnboardingDelegateForwarder : AppDNAOnboardingDelegate {
+        override fun onOnboardingStarted(flowId: String) {
+            emit(onboardingEventSink, "onOnboardingStarted", mapOf("flowId" to flowId))
+        }
+
+        override fun onOnboardingStepChanged(
+            flowId: String,
+            stepId: String,
+            stepIndex: Int,
+            totalSteps: Int,
+        ) {
+            emit(
+                onboardingEventSink,
+                "onOnboardingStepChanged",
+                mapOf(
+                    "flowId" to flowId,
+                    "stepId" to stepId,
+                    "stepIndex" to stepIndex,
+                    "totalSteps" to totalSteps,
+                ),
+            )
+        }
+
+        override fun onOnboardingCompleted(flowId: String, responses: Map<String, Any>) {
+            emit(
+                onboardingEventSink,
+                "onOnboardingCompleted",
+                mapOf("flowId" to flowId, "responses" to responses),
+            )
+        }
+
+        override fun onOnboardingDismissed(flowId: String, atStep: Int) {
+            emit(
+                onboardingEventSink,
+                "onOnboardingDismissed",
+                mapOf("flowId" to flowId, "atStep" to atStep),
+            )
+        }
+
+        // SPEC-083 async hooks (onBeforeStepAdvance / onBeforeStepRender) are
+        // NOT forwarded in v1. Both return values back to the SDK (gating the
+        // step transition + overriding step config), which the one-way
+        // event-channel can't carry. Defaults remain (Proceed / null) — they
+        // matched the native SDK's pre-SPEC-083 behavior. A future hookup
+        // would need the sync_callbacks MethodChannel with a Dart-side
+        // CompletableDeferred handshake.
+    }
+
+    /** Survey lifecycle (3 methods). */
+    private inner class SurveyDelegateForwarder : AppDNASurveyDelegate {
+        override fun onSurveyPresented(surveyId: String) {
+            emit(surveyEventSink, "onSurveyPresented", mapOf("surveyId" to surveyId))
+        }
+
+        override fun onSurveyCompleted(surveyId: String, responses: List<SurveyResponse>) {
+            emit(
+                surveyEventSink,
+                "onSurveyCompleted",
+                mapOf("surveyId" to surveyId, "responses" to responses.map { surveyResponseToMap(it) }),
+            )
+        }
+
+        override fun onSurveyDismissed(surveyId: String) {
+            emit(surveyEventSink, "onSurveyDismissed", mapOf("surveyId" to surveyId))
+        }
+    }
+
+    /** In-app message lifecycle (3 observe + 1 veto). */
+    private inner class InAppMessageDelegateForwarder : AppDNAInAppMessageDelegate {
+        override fun onMessageShown(messageId: String, trigger: String) {
+            emit(
+                inAppMessageEventSink,
+                "onMessageShown",
+                mapOf("messageId" to messageId, "trigger" to trigger),
+            )
+        }
+
+        override fun onMessageAction(messageId: String, action: String, data: Map<String, Any>?) {
+            emit(
+                inAppMessageEventSink,
+                "onMessageAction",
+                mapOf("messageId" to messageId, "action" to action, "data" to data),
+            )
+        }
+
+        override fun onMessageDismissed(messageId: String) {
+            emit(inAppMessageEventSink, "onMessageDismissed", mapOf("messageId" to messageId))
+        }
+
+        /**
+         * Veto hook. v1 ALWAYS returns `true` — see plugin contract note.
+         * The callback still surfaces through the event channel as an
+         * observe-only `shouldShowMessage` event so Dart code can log /
+         * record the call, but cannot actually block display. Real veto
+         * support requires bridging this sync return through Dart via the
+         * `com.appdna.sdk/sync_callbacks` MethodChannel with a
+         * CompletableDeferred / timeout handshake — left to a follow-up.
+         */
+        override fun shouldShowMessage(messageId: String): Boolean {
+            emit(inAppMessageEventSink, "shouldShowMessage", mapOf("messageId" to messageId))
+            return true
+        }
+    }
+
+    /** Push notification lifecycle (3 methods). */
+    private inner class PushDelegateForwarder : AppDNAPushDelegate {
+        override fun onPushTokenRegistered(token: String) {
+            emit(pushEventSink, "onPushTokenRegistered", mapOf("token" to token))
+        }
+
+        override fun onPushReceived(notification: PushPayload, inForeground: Boolean) {
+            emit(
+                pushEventSink,
+                "onPushReceived",
+                mapOf(
+                    "notification" to pushPayloadToMap(notification),
+                    "inForeground" to inForeground,
+                ),
+            )
+        }
+
+        override fun onPushTapped(notification: PushPayload, actionId: String?) {
+            emit(
+                pushEventSink,
+                "onPushTapped",
+                mapOf(
+                    "notification" to pushPayloadToMap(notification),
+                    "actionId" to actionId,
+                ),
+            )
+        }
+    }
+
+    /** Billing observer (5 methods incl. onBillingUnavailable). */
+    private inner class BillingDelegateForwarder : AppDNABillingDelegate {
+        override fun onPurchaseCompleted(productId: String, transaction: TransactionInfo) {
+            emit(
+                billingDelegateEventSink,
+                "onPurchaseCompleted",
+                mapOf("productId" to productId, "transaction" to transactionToMap(transaction)),
+            )
+        }
+
+        override fun onPurchaseFailed(productId: String, error: Throwable) {
+            emit(
+                billingDelegateEventSink,
+                "onPurchaseFailed",
+                mapOf("productId" to productId, "error" to throwableToMap(error)),
+            )
+        }
+
+        override fun onEntitlementsChanged(entitlements: List<Entitlement>) {
+            emit(
+                billingDelegateEventSink,
+                "onEntitlementsChanged",
+                mapOf("entitlements" to entitlements.map { entitlementToMap(it) }),
+            )
+        }
+
+        override fun onRestoreCompleted(restoredProducts: List<String>) {
+            emit(
+                billingDelegateEventSink,
+                "onRestoreCompleted",
+                mapOf("restoredProductIds" to restoredProducts),
+            )
+        }
+
+        override fun onBillingUnavailable() {
+            emit(billingDelegateEventSink, "onBillingUnavailable", emptyMap())
+        }
+    }
+
+    /** Deep link receiver (1 method on the native interface). */
+    private inner class DeepLinkDelegateForwarder : AppDNADeepLinkDelegate {
+        override fun onDeepLinkReceived(url: String, params: Map<String, String>) {
+            emit(
+                deepLinkEventSink,
+                "onDeepLinkReceived",
+                mapOf("url" to url, "params" to params),
+            )
+        }
+    }
+
+    /** Server-driven screen lifecycle (3 observe + 1 veto). */
+    private inner class ScreenDelegateForwarder : AppDNAScreenDelegate {
+        override fun onScreenPresented(screenId: String) {
+            emit(screenEventSink, "onScreenPresented", mapOf("screenId" to screenId))
+        }
+
+        override fun onScreenDismissed(screenId: String, result: Map<String, Any?>) {
+            emit(
+                screenEventSink,
+                "onScreenDismissed",
+                mapOf("screenId" to screenId, "result" to result),
+            )
+        }
+
+        override fun onFlowCompleted(flowId: String, result: Map<String, Any?>) {
+            emit(
+                screenEventSink,
+                "onFlowCompleted",
+                mapOf("flowId" to flowId, "result" to result),
+            )
+        }
+
+        /**
+         * Veto hook. Like in-app messages, v1 ALWAYS returns `true` and
+         * surfaces the action via the screen event channel as observe-only.
+         * Dart can record the action and emit analytics but cannot block
+         * default SDK handling. Real veto requires the sync_callbacks
+         * MethodChannel handshake (follow-up).
+         */
+        override fun onScreenAction(screenId: String, action: Map<String, Any?>): Boolean {
+            emit(
+                screenEventSink,
+                "onScreenAction",
+                mapOf("screenId" to screenId, "action" to action),
+            )
+            return true
+        }
     }
 }

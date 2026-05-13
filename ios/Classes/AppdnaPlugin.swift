@@ -7,6 +7,18 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     private var billingChannel: FlutterMethodChannel?
     private var entitlementEventSink: FlutterEventSink?
 
+    // MARK: - Delegate forwarders (strong references so they are NOT
+    // deallocated — the iOS SDK holds delegates with `weak` semantics on
+    // most surfaces and `static weak` on push/billing/screen).
+    private var onboardingForwarder: OnboardingDelegateForwarder?
+    private var paywallForwarder: PaywallDelegateForwarder?
+    private var surveyForwarder: SurveyDelegateForwarder?
+    private var inAppMessageForwarder: InAppMessageDelegateForwarder?
+    private var pushForwarder: PushDelegateForwarder?
+    private var billingDelegateForwarder: BillingDelegateForwarder?
+    private var deepLinkForwarder: DeepLinkDelegateForwarder?
+    private var screenForwarder: ScreenDelegateForwarder?
+
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(
             name: "com.appdna.sdk/main",
@@ -33,6 +45,69 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         billingChannel.setMethodCallHandler(instance.handleBilling)
         eventChannel.setStreamHandler(instance)
         entitlementEventChannel.setStreamHandler(BillingEntitlementStreamHandler(plugin: instance))
+
+        // MARK: - Delegate event channels (native -> Dart)
+        // Each forwarder implements the corresponding native delegate
+        // protocol AND FlutterStreamHandler. On stream onListen the
+        // forwarder is wired to the native module via setDelegate(...);
+        // on onCancel the delegate is cleared.
+        let messenger = registrar.messenger()
+
+        let onboardingChannel = FlutterEventChannel(
+            name: "com.appdna.sdk/events/onboarding", binaryMessenger: messenger
+        )
+        let onboardingForwarder = OnboardingDelegateForwarder()
+        instance.onboardingForwarder = onboardingForwarder
+        onboardingChannel.setStreamHandler(onboardingForwarder)
+
+        let paywallChannel = FlutterEventChannel(
+            name: "com.appdna.sdk/events/paywall", binaryMessenger: messenger
+        )
+        let paywallForwarder = PaywallDelegateForwarder()
+        instance.paywallForwarder = paywallForwarder
+        paywallChannel.setStreamHandler(paywallForwarder)
+
+        let surveyChannel = FlutterEventChannel(
+            name: "com.appdna.sdk/events/survey", binaryMessenger: messenger
+        )
+        let surveyForwarder = SurveyDelegateForwarder()
+        instance.surveyForwarder = surveyForwarder
+        surveyChannel.setStreamHandler(surveyForwarder)
+
+        let inAppMessageChannel = FlutterEventChannel(
+            name: "com.appdna.sdk/events/in_app_message", binaryMessenger: messenger
+        )
+        let inAppMessageForwarder = InAppMessageDelegateForwarder()
+        instance.inAppMessageForwarder = inAppMessageForwarder
+        inAppMessageChannel.setStreamHandler(inAppMessageForwarder)
+
+        let pushChannel = FlutterEventChannel(
+            name: "com.appdna.sdk/events/push", binaryMessenger: messenger
+        )
+        let pushForwarder = PushDelegateForwarder()
+        instance.pushForwarder = pushForwarder
+        pushChannel.setStreamHandler(pushForwarder)
+
+        let billingEventChannel = FlutterEventChannel(
+            name: "com.appdna.sdk/events/billing", binaryMessenger: messenger
+        )
+        let billingDelegateForwarder = BillingDelegateForwarder()
+        instance.billingDelegateForwarder = billingDelegateForwarder
+        billingEventChannel.setStreamHandler(billingDelegateForwarder)
+
+        let deepLinkChannel = FlutterEventChannel(
+            name: "com.appdna.sdk/events/deep_link", binaryMessenger: messenger
+        )
+        let deepLinkForwarder = DeepLinkDelegateForwarder()
+        instance.deepLinkForwarder = deepLinkForwarder
+        deepLinkChannel.setStreamHandler(deepLinkForwarder)
+
+        let screenChannel = FlutterEventChannel(
+            name: "com.appdna.sdk/events/screen", binaryMessenger: messenger
+        )
+        let screenForwarder = ScreenDelegateForwarder()
+        instance.screenForwarder = screenForwarder
+        screenChannel.setStreamHandler(screenForwarder)
     }
 
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -343,5 +418,563 @@ private extension UIApplication {
             vc = presented
         }
         return vc
+    }
+}
+
+// MARK: - Delegate Event Forwarders
+//
+// Each forwarder implements one of the eight native delegate protocols
+// AND FlutterStreamHandler. On stream `onListen` it wires itself into
+// the native module via `setDelegate(...)`; on `onCancel` it clears the
+// delegate. Every callback marshals its arguments into the canonical
+// shared payload:
+//
+//   { "type": "<delegateMethodName>", "args": { "<argName>": <value>, ... } }
+//
+// and dispatches `eventSink(...)` on the main thread (required by Flutter).
+//
+// All forwarders are held strongly by `AppdnaPlugin` so they survive the
+// iOS SDK's `weak` delegate references.
+
+/// Convenience: serialize a Swift `Error` for Dart consumers.
+@inline(__always)
+private func errorMap(_ error: Error) -> [String: Any] {
+    return [
+        "message": error.localizedDescription,
+        "type": "\(type(of: error))"
+    ]
+}
+
+/// Convenience: dispatch a `{type,args}` payload to a sink on main thread.
+@inline(__always)
+private func sendEvent(_ sink: FlutterEventSink?, type: String, args: [String: Any?]) {
+    guard let sink = sink else { return }
+    let payload: [String: Any] = [
+        "type": type,
+        "args": args.mapValues { $0 ?? NSNull() }
+    ]
+    if Thread.isMainThread {
+        sink(payload)
+    } else {
+        DispatchQueue.main.async {
+            sink(payload)
+        }
+    }
+}
+
+// MARK: Onboarding
+
+private class OnboardingDelegateForwarder: NSObject, AppDNAOnboardingDelegate, FlutterStreamHandler {
+    private var sink: FlutterEventSink?
+
+    func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+        self.sink = events
+        AppDNA.onboarding.setDelegate(self)
+        return nil
+    }
+
+    func onCancel(withArguments arguments: Any?) -> FlutterError? {
+        AppDNA.onboarding.setDelegate(nil)
+        self.sink = nil
+        return nil
+    }
+
+    func onOnboardingStarted(flowId: String) {
+        sendEvent(sink, type: "onOnboardingStarted", args: ["flowId": flowId])
+    }
+
+    func onOnboardingStepChanged(flowId: String, stepId: String, stepIndex: Int, totalSteps: Int) {
+        sendEvent(sink, type: "onOnboardingStepChanged", args: [
+            "flowId": flowId,
+            "stepId": stepId,
+            "stepIndex": stepIndex,
+            "totalSteps": totalSteps
+        ])
+    }
+
+    func onOnboardingCompleted(flowId: String, responses: [String: Any]) {
+        sendEvent(sink, type: "onOnboardingCompleted", args: [
+            "flowId": flowId,
+            "responses": responses
+        ])
+    }
+
+    func onOnboardingDismissed(flowId: String, atStep: Int) {
+        sendEvent(sink, type: "onOnboardingDismissed", args: [
+            "flowId": flowId,
+            "atStep": atStep
+        ])
+    }
+
+    // SPEC-083 async hooks: forward as observe-only events for visibility,
+    // but return the default values. Sync-veto / async-return bridging is
+    // a follow-up (see InAppMessage.shouldShowMessage note below).
+    func onBeforeStepAdvance(
+        flowId: String,
+        fromStepId: String,
+        stepIndex: Int,
+        stepType: String,
+        responses: [String: Any],
+        stepData: [String: Any]?
+    ) async -> StepAdvanceResult {
+        sendEvent(sink, type: "onBeforeStepAdvance", args: [
+            "flowId": flowId,
+            "fromStepId": fromStepId,
+            "stepIndex": stepIndex,
+            "stepType": stepType,
+            "responses": responses,
+            "stepData": stepData
+        ])
+        return .proceed
+    }
+
+    func onBeforeStepRender(
+        flowId: String,
+        stepId: String,
+        stepIndex: Int,
+        stepType: String,
+        responses: [String: Any]
+    ) async -> StepConfigOverride? {
+        sendEvent(sink, type: "onBeforeStepRender", args: [
+            "flowId": flowId,
+            "stepId": stepId,
+            "stepIndex": stepIndex,
+            "stepType": stepType,
+            "responses": responses
+        ])
+        return nil
+    }
+}
+
+// MARK: Paywall
+
+private class PaywallDelegateForwarder: NSObject, AppDNAPaywallDelegate, FlutterStreamHandler {
+    private var sink: FlutterEventSink?
+
+    func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+        self.sink = events
+        AppDNA.paywall.setDelegate(self)
+        return nil
+    }
+
+    func onCancel(withArguments arguments: Any?) -> FlutterError? {
+        AppDNA.paywall.setDelegate(nil)
+        self.sink = nil
+        return nil
+    }
+
+    func onPaywallPresented(paywallId: String) {
+        sendEvent(sink, type: "onPaywallPresented", args: ["paywallId": paywallId])
+    }
+
+    func onPaywallAction(paywallId: String, action: PaywallAction) {
+        sendEvent(sink, type: "onPaywallAction", args: [
+            "paywallId": paywallId,
+            "action": action.rawValue
+        ])
+    }
+
+    func onPaywallPurchaseStarted(paywallId: String, productId: String) {
+        sendEvent(sink, type: "onPaywallPurchaseStarted", args: [
+            "paywallId": paywallId,
+            "productId": productId
+        ])
+    }
+
+    func onPaywallPurchaseCompleted(paywallId: String, productId: String, transaction: TransactionInfo) {
+        sendEvent(sink, type: "onPaywallPurchaseCompleted", args: [
+            "paywallId": paywallId,
+            "productId": productId,
+            "transaction": transactionInfoToMap(transaction)
+        ])
+    }
+
+    func onPaywallPurchaseFailed(paywallId: String, error: Error) {
+        sendEvent(sink, type: "onPaywallPurchaseFailed", args: [
+            "paywallId": paywallId,
+            "error": errorMap(error)
+        ])
+    }
+
+    func onPaywallDismissed(paywallId: String) {
+        sendEvent(sink, type: "onPaywallDismissed", args: ["paywallId": paywallId])
+    }
+
+    func onPromoCodeSubmit(paywallId: String, code: String, completion: @escaping (Bool) -> Void) {
+        // Forward as observe-only for v1; default-reject the code since
+        // we can't synchronously await a Dart response. Sync-return
+        // bridging is a follow-up (documented in plugin scope).
+        sendEvent(sink, type: "onPromoCodeSubmit", args: [
+            "paywallId": paywallId,
+            "code": code
+        ])
+        completion(false)
+    }
+
+    func onPostPurchaseDeepLink(paywallId: String, url: String) {
+        sendEvent(sink, type: "onPostPurchaseDeepLink", args: [
+            "paywallId": paywallId,
+            "url": url
+        ])
+    }
+
+    func onPostPurchaseNextStep(paywallId: String) {
+        sendEvent(sink, type: "onPostPurchaseNextStep", args: ["paywallId": paywallId])
+    }
+
+    func onPaywallRestoreStarted(paywallId: String) {
+        sendEvent(sink, type: "onPaywallRestoreStarted", args: ["paywallId": paywallId])
+    }
+
+    func onPaywallRestoreCompleted(paywallId: String, productIds: [String]) {
+        sendEvent(sink, type: "onPaywallRestoreCompleted", args: [
+            "paywallId": paywallId,
+            "productIds": productIds
+        ])
+    }
+
+    func onPaywallRestoreFailed(paywallId: String, error: Error) {
+        sendEvent(sink, type: "onPaywallRestoreFailed", args: [
+            "paywallId": paywallId,
+            "error": errorMap(error)
+        ])
+    }
+
+    private func transactionInfoToMap(_ t: TransactionInfo) -> [String: Any] {
+        return [
+            "transactionId": t.transactionId,
+            "productId": t.productId,
+            "purchaseDate": t.purchaseDate.timeIntervalSince1970 * 1000,
+            "environment": t.environment
+        ]
+    }
+}
+
+// MARK: Survey
+
+private class SurveyDelegateForwarder: NSObject, AppDNASurveyDelegate, FlutterStreamHandler {
+    private var sink: FlutterEventSink?
+
+    func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+        self.sink = events
+        AppDNA.surveys.setDelegate(self)
+        return nil
+    }
+
+    func onCancel(withArguments arguments: Any?) -> FlutterError? {
+        AppDNA.surveys.setDelegate(nil)
+        self.sink = nil
+        return nil
+    }
+
+    func onSurveyPresented(surveyId: String) {
+        sendEvent(sink, type: "onSurveyPresented", args: ["surveyId": surveyId])
+    }
+
+    func onSurveyCompleted(surveyId: String, responses: [SurveyResponse]) {
+        let mapped: [[String: Any]] = responses.map { r in
+            ["questionId": r.questionId, "answer": r.answer]
+        }
+        sendEvent(sink, type: "onSurveyCompleted", args: [
+            "surveyId": surveyId,
+            "responses": mapped
+        ])
+    }
+
+    func onSurveyDismissed(surveyId: String) {
+        sendEvent(sink, type: "onSurveyDismissed", args: ["surveyId": surveyId])
+    }
+}
+
+// MARK: In-App Message
+
+private class InAppMessageDelegateForwarder: NSObject, AppDNAInAppMessageDelegate, FlutterStreamHandler {
+    private var sink: FlutterEventSink?
+
+    func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+        self.sink = events
+        AppDNA.inAppMessages.setDelegate(self)
+        return nil
+    }
+
+    func onCancel(withArguments arguments: Any?) -> FlutterError? {
+        AppDNA.inAppMessages.setDelegate(nil)
+        self.sink = nil
+        return nil
+    }
+
+    func onMessageShown(messageId: String, trigger: String) {
+        sendEvent(sink, type: "onMessageShown", args: [
+            "messageId": messageId,
+            "trigger": trigger
+        ])
+    }
+
+    func onMessageAction(messageId: String, action: String, data: [String: Any]?) {
+        sendEvent(sink, type: "onMessageAction", args: [
+            "messageId": messageId,
+            "action": action,
+            "data": data
+        ])
+    }
+
+    func onMessageDismissed(messageId: String) {
+        sendEvent(sink, type: "onMessageDismissed", args: ["messageId": messageId])
+    }
+
+    /// VETO method — `shouldShowMessage(messageId:) -> Bool` is synchronous
+    /// and cannot wait on a Dart roundtrip. v1 forwards the message as an
+    /// observe-only event on the in_app_message channel and defaults the
+    /// return value to `true` (always show). Sync veto bridging via a
+    /// blocking MethodChannel call from Dart is a follow-up.
+    func shouldShowMessage(messageId: String) -> Bool {
+        sendEvent(sink, type: "shouldShowMessage", args: ["messageId": messageId])
+        return true
+    }
+}
+
+// MARK: Push
+
+private class PushDelegateForwarder: NSObject, AppDNAPushDelegate, FlutterStreamHandler {
+    private var sink: FlutterEventSink?
+
+    func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+        self.sink = events
+        AppDNA.pushModule.setDelegate(self)
+        return nil
+    }
+
+    func onCancel(withArguments arguments: Any?) -> FlutterError? {
+        AppDNA.pushModule.setDelegate(nil)
+        self.sink = nil
+        return nil
+    }
+
+    func onPushTokenRegistered(token: String) {
+        sendEvent(sink, type: "onPushTokenRegistered", args: ["token": token])
+    }
+
+    func onPushReceived(notification: PushPayload, inForeground: Bool) {
+        sendEvent(sink, type: "onPushReceived", args: [
+            "notification": pushPayloadToMap(notification),
+            "inForeground": inForeground
+        ])
+    }
+
+    func onPushTapped(notification: PushPayload, actionId: String?) {
+        sendEvent(sink, type: "onPushTapped", args: [
+            "notification": pushPayloadToMap(notification),
+            "actionId": actionId
+        ])
+    }
+
+    private func pushPayloadToMap(_ p: PushPayload) -> [String: Any?] {
+        var actionMap: [String: Any]? = nil
+        if let a = p.action {
+            actionMap = ["type": a.type, "value": a.value]
+        }
+        return [
+            "pushId": p.pushId,
+            "title": p.title,
+            "body": p.body,
+            "imageUrl": p.imageUrl,
+            "data": p.data,
+            "action": actionMap
+        ]
+    }
+}
+
+// MARK: Billing (lifecycle delegate)
+
+private class BillingDelegateForwarder: NSObject, AppDNABillingDelegate, FlutterStreamHandler {
+    private var sink: FlutterEventSink?
+
+    func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+        self.sink = events
+        AppDNA.billing.setDelegate(self)
+        return nil
+    }
+
+    func onCancel(withArguments arguments: Any?) -> FlutterError? {
+        AppDNA.billing.setDelegate(nil)
+        self.sink = nil
+        return nil
+    }
+
+    func onPurchaseCompleted(productId: String, transaction: TransactionInfo) {
+        sendEvent(sink, type: "onPurchaseCompleted", args: [
+            "productId": productId,
+            "transaction": [
+                "transactionId": transaction.transactionId,
+                "productId": transaction.productId,
+                "purchaseDate": transaction.purchaseDate.timeIntervalSince1970 * 1000,
+                "environment": transaction.environment
+            ]
+        ])
+    }
+
+    func onPurchaseFailed(productId: String, error: Error) {
+        sendEvent(sink, type: "onPurchaseFailed", args: [
+            "productId": productId,
+            "error": errorMap(error)
+        ])
+    }
+
+    func onEntitlementsChanged(entitlements: [Entitlement]) {
+        let mapped: [[String: Any?]] = entitlements.map { e in
+            [
+                "identifier": e.identifier,
+                "isActive": e.isActive,
+                "expiresAt": e.expiresAt.map { $0.timeIntervalSince1970 * 1000 },
+                "productId": e.productId
+            ]
+        }
+        sendEvent(sink, type: "onEntitlementsChanged", args: [
+            "entitlements": mapped
+        ])
+    }
+
+    func onRestoreCompleted(restoredProducts: [String]) {
+        sendEvent(sink, type: "onRestoreCompleted", args: [
+            "restoredProducts": restoredProducts
+        ])
+    }
+}
+
+// MARK: Deep Link
+
+private class DeepLinkDelegateForwarder: NSObject, AppDNADeepLinkDelegate, FlutterStreamHandler {
+    private var sink: FlutterEventSink?
+
+    func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+        self.sink = events
+        AppDNA.deepLinks.setDelegate(self)
+        return nil
+    }
+
+    func onCancel(withArguments arguments: Any?) -> FlutterError? {
+        AppDNA.deepLinks.setDelegate(nil)
+        self.sink = nil
+        return nil
+    }
+
+    func onDeepLinkReceived(url: URL, params: [String: String]) {
+        sendEvent(sink, type: "onDeepLinkReceived", args: [
+            "url": url.absoluteString,
+            "params": params
+        ])
+    }
+}
+
+// MARK: Screen
+//
+// The Screen delegate is held on `AppDNA.screenDelegate` (static weak),
+// not via a module-level `setDelegate(...)`. The forwarder is kept alive
+// by `AppdnaPlugin` and assigned/cleared on stream lifecycle.
+
+private class ScreenDelegateForwarder: NSObject, AppDNAScreenDelegate, FlutterStreamHandler {
+    private var sink: FlutterEventSink?
+
+    func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+        self.sink = events
+        AppDNA.screenDelegate = self
+        return nil
+    }
+
+    func onCancel(withArguments arguments: Any?) -> FlutterError? {
+        AppDNA.screenDelegate = nil
+        self.sink = nil
+        return nil
+    }
+
+    func onScreenPresented(screenId: String) {
+        sendEvent(sink, type: "onScreenPresented", args: ["screenId": screenId])
+    }
+
+    func onScreenDismissed(screenId: String, result: ScreenResult) {
+        sendEvent(sink, type: "onScreenDismissed", args: [
+            "screenId": screenId,
+            "result": screenResultToMap(result)
+        ])
+    }
+
+    func onFlowCompleted(flowId: String, result: FlowResult) {
+        sendEvent(sink, type: "onFlowCompleted", args: [
+            "flowId": flowId,
+            "result": flowResultToMap(result)
+        ])
+    }
+
+    /// VETO method — `onScreenAction(screenId:action:) -> Bool` is
+    /// synchronous; v1 forwards as observe-only and defaults to `true`
+    /// (allow the action). Sync veto bridging is a follow-up.
+    func onScreenAction(screenId: String, action: SectionAction) -> Bool {
+        sendEvent(sink, type: "onScreenAction", args: [
+            "screenId": screenId,
+            "action": sectionActionToMap(action)
+        ])
+        return true
+    }
+
+    private func screenResultToMap(_ r: ScreenResult) -> [String: Any?] {
+        return [
+            "screenId": r.screenId,
+            "dismissed": r.dismissed,
+            "responses": r.responses,
+            "lastAction": r.lastAction,
+            "duration_ms": r.duration_ms,
+            "error": r.error?.rawValue
+        ]
+    }
+
+    private func flowResultToMap(_ r: FlowResult) -> [String: Any?] {
+        return [
+            "flowId": r.flowId,
+            "completed": r.completed,
+            "lastScreenId": r.lastScreenId,
+            "responses": r.responses,
+            "screensViewed": r.screensViewed,
+            "duration_ms": r.duration_ms,
+            "error": r.error?.rawValue
+        ]
+    }
+
+    /// Encode a `SectionAction` as `{type, value?}` matching the shared
+    /// payload contract (Android forwarder encodes the same shape).
+    private func sectionActionToMap(_ action: SectionAction) -> [String: Any?] {
+        switch action {
+        case .next:
+            return ["type": "next"]
+        case .back:
+            return ["type": "back"]
+        case .dismiss:
+            return ["type": "dismiss"]
+        case .navigate(let screenId):
+            return ["type": "navigate", "screenId": screenId]
+        case .openURL(let url):
+            return ["type": "openURL", "url": url]
+        case .openWebview(let url):
+            return ["type": "openWebview", "url": url]
+        case .openAppSettings:
+            return ["type": "openAppSettings"]
+        case .share(let text):
+            return ["type": "share", "text": text]
+        case .deepLink(let url):
+            return ["type": "deepLink", "url": url]
+        case .showPaywall(let id):
+            return ["type": "showPaywall", "id": id]
+        case .showSurvey(let id):
+            return ["type": "showSurvey", "id": id]
+        case .showScreen(let id):
+            return ["type": "showScreen", "id": id]
+        case .submitForm(let data):
+            return ["type": "submitForm", "data": data]
+        case .track(let event, let properties):
+            return ["type": "track", "event": event, "properties": properties]
+        case .haptic(let type):
+            return ["type": "haptic", "hapticType": type]
+        case .custom(let type, let value):
+            return ["type": "custom", "customType": type, "value": value]
+        }
     }
 }

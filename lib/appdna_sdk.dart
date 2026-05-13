@@ -223,7 +223,7 @@ class AppDNA {
     await _channel.invokeMethod('shutdown');
   }
 
-  /// Get the native SDK version string (e.g. iOS "1.0.61" or Android "1.0.32").
+  /// Get the native SDK version string (e.g. iOS "1.0.61" or Android "1.0.33").
   static Future<String> getSdkVersion() async {
     final version = await _channel.invokeMethod<String>('getSdkVersion');
     return version ?? 'unknown';

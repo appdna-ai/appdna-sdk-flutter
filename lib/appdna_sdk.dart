@@ -730,15 +730,55 @@ class AppDNADeepLinksModule {
 
 /// Server-driven screen module namespace.
 /// Forwards `com.appdna.sdk/events/screen` envelopes to an
-/// `AppDNAScreenDelegate`. `onScreenAction` veto is observe-only in v1.
+/// `AppDNAScreenDelegate`.
 class AppDNAScreenModule {
-  // ignore: unused_field
   final MethodChannel _channel;
   AppDNAScreenDelegate? _delegate;
   StreamSubscription? _eventSub;
   static const _events = EventChannel('com.appdna.sdk/events/screen');
 
   AppDNAScreenModule._(this._channel);
+
+  /// Present a server-driven screen by ID. The screen is rendered natively;
+  /// lifecycle callbacks fire on the registered [AppDNAScreenDelegate].
+  Future<void> show(String screenId, {Map<String, dynamic>? context}) {
+    return _channel.invokeMethod('showScreen', {
+      'screenId': screenId,
+      if (context != null) 'context': context,
+    });
+  }
+
+  /// Present a multi-screen flow by ID. The flow runs through its configured
+  /// screens; the delegate's `onFlowCompleted` fires when finished or abandoned.
+  Future<void> showFlow(String flowId, {Map<String, dynamic>? context}) {
+    return _channel.invokeMethod('showScreenFlow', {
+      'flowId': flowId,
+      if (context != null) 'context': context,
+    });
+  }
+
+  /// Dismiss the currently-presented screen, if any.
+  Future<void> dismiss() {
+    return _channel.invokeMethod('dismissScreen');
+  }
+
+  /// Enable navigation interception so the delegate's `onScreenAction` is
+  /// consulted before the SDK applies its default routing for nav actions.
+  Future<void> enableNavigationInterception() {
+    return _channel.invokeMethod('enableScreenNavigationInterception');
+  }
+
+  /// Disable navigation interception. The SDK resumes applying default
+  /// routing for all nav actions.
+  Future<void> disableNavigationInterception() {
+    return _channel.invokeMethod('disableScreenNavigationInterception');
+  }
+
+  /// Render a screen from raw JSON for debugging or design preview.
+  /// Use during development only.
+  Future<void> preview(Map<String, dynamic> json) {
+    return _channel.invokeMethod('previewScreen', {'json': json});
+  }
 
   /// Set a delegate to receive server-driven screen lifecycle callbacks.
   /// Pass `null` to clear the current delegate and stop listening.
@@ -776,7 +816,6 @@ class AppDNAScreenModule {
         );
         break;
       case 'onScreenAction':
-        // Veto observe-only in v1 — return value not propagated to native.
         d.onScreenAction(
           args['screenId'] as String? ?? '',
           (args['action'] as Map?)?.cast<String, dynamic>() ??

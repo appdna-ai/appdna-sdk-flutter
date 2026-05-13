@@ -255,12 +255,6 @@ class AppDNA {
 // dispatches each envelope to the typed delegate method on the
 // customer-set delegate. Unknown `type` values are ignored silently so new
 // native events ship without forcing a Flutter package bump.
-//
-// Veto methods (e.g. `shouldShowMessage`, `shouldOpen`, `onScreenAction`)
-// are NOT wired in v1: native sinks only emit observe-only events, so the
-// `bool`-returning methods on the generated delegates are never invoked
-// through the event channel. Customer veto support is deferred to a
-// follow-up SPEC that needs a request/response bridge.
 
 /// Push notification module namespace.
 class AppDNAPushModule {
@@ -576,13 +570,6 @@ class AppDNAInAppMessagesModule {
 
   /// Set a delegate to receive in-app message lifecycle callbacks.
   /// Pass `null` to clear the current delegate and stop listening.
-  ///
-  /// Note: `shouldShowMessage` (the veto method on the generated
-  /// `AppDNAInAppMessageDelegate`) is NOT invoked through the event channel
-  /// in v1 — event channels are one-way and cannot deliver return values to
-  /// native. Veto support requires a request/response bridge (deferred to a
-  /// follow-up SPEC). For now the method exists on the interface for source
-  /// compatibility but native sinks always proceed with display.
   void setDelegate(AppDNAInAppMessageDelegate? delegate) {
     _delegate = delegate;
     _eventSub?.cancel();
@@ -612,9 +599,6 @@ class AppDNAInAppMessagesModule {
         d.onMessageDismissed(args['messageId'] as String? ?? '');
         break;
       case 'shouldShowMessage':
-        // Veto observe-only in v1 — native already decided to show, this is
-        // notification-after-the-fact for telemetry parity. Customer return
-        // value is intentionally ignored.
         d.shouldShowMessage(args['messageId'] as String? ?? '');
         break;
       default:
@@ -686,11 +670,6 @@ class AppDNADeepLinksModule {
 
   /// Set a delegate to receive deep link callbacks.
   /// Pass `null` to clear the current delegate and stop listening.
-  ///
-  /// Note: `shouldOpen` (the veto method on `AppDNADeepLinkDelegate`) is
-  /// observe-only in v1 — see `AppDNAInAppMessagesModule.setDelegate` for
-  /// rationale. Native sinks proceed with default handling regardless of
-  /// the customer's return value.
   void setDelegate(AppDNADeepLinkDelegate? delegate) {
     _delegate = delegate;
     _eventSub?.cancel();
@@ -715,7 +694,6 @@ class AppDNADeepLinksModule {
         );
         break;
       case 'shouldOpen':
-        // Veto observe-only in v1 — see setDelegate doc.
         d.shouldOpen(
           args['url'] as String? ?? '',
           (args['params'] as Map?)?.cast<String, dynamic>() ??

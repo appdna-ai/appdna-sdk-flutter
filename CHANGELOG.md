@@ -1,4 +1,4 @@
-## 1.0.4
+## 1.0.3
 
 - `appdna_feature_parity: 1.0.62` — Flutter now wraps iOS 1.0.62 + Android
   1.0.34, the cross-account-entitlement-leak hotfix. Both halves of the

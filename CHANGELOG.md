@@ -1,3 +1,16 @@
+## 1.0.4
+
+- `appdna_feature_parity: 1.0.63` — Flutter now wraps iOS 1.0.63 + Android
+  1.0.35, the cross-account-entitlement-leak follow-up. The 1.0.3
+  migration-tolerant policy (granting untagged historical purchases to
+  whoever was currently identified) is now **scoped to the device's
+  first identified user**, so an SDK-paywall-during-onboarding purchase
+  made before `identify(...)` was called can only be claimed by the
+  legitimate first user — a later user-switch on the same device is
+  denied. Bogdan reproduced the original leak; this release closes it.
+  **No Dart code changes** — hosts pick up the fix automatically by
+  upgrading the Flutter package.
+
 ## 1.0.3
 
 - `appdna_feature_parity: 1.0.62` — Flutter now wraps iOS 1.0.62 + Android

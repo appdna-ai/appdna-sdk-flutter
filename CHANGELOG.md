@@ -1,3 +1,13 @@
+## 1.0.4
+
+- `appdna_feature_parity: 1.0.62` — Flutter now wraps iOS 1.0.62 + Android
+  1.0.34, the cross-account-entitlement-leak hotfix. Both halves of the
+  fix (write-side per-user `appAccountToken` / `obfuscatedAccountId`
+  binding via `AppAccountTokenResolver`; read-side filter on every
+  device-level entitlement read via `EntitlementOwnerFilter`) ship in the
+  bundled native iOS + Android — **no Dart code changes**, hosts pick up
+  the fix automatically by upgrading the Flutter package.
+
 ## 1.0.2
 
 - SPEC-070-0 codegen artifacts for `AppDNAEnvironment` DTO + delegate

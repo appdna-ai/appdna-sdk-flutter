@@ -1,13 +1,16 @@
 name: appdna_sdk
 description: AppDNA SDK for Flutter — analytics, experiments, paywalls, surveys, and more.
-version: 1.0.4
+version: 1.0.5
 homepage: https://appdna.ai
 repository: https://github.com/appdna-ai/appdna-sdk-flutter
 
 # AppDNA cross-platform feature-parity marker (SPEC-070-0).
 # This Flutter package wraps iOS + Android native SDKs at the version below.
 # CI (`pnpm check:version-lockstep`) verifies this matches iOS's `s.version`.
-appdna_feature_parity: 1.0.63
+# 1.0.64 = SPEC-404 hard SDK suspension — adds AppDNALifecycleDelegate
+# (codegen'd into lib/generated/delegates.dart) + bootstrap runtime_lock
+# pass-through to host. Flutter remains a thin wrapper per ADR-001.
+appdna_feature_parity: 1.0.64
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

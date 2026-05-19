@@ -2,7 +2,7 @@
 // Source: src/lib/sdk-delegates/index.ts
 // Generator: scripts/sdk-codegen/emit-delegates.ts
 // Regenerate: pnpm sdk-codegen
-// Last codegen commit: 11054dcc57b2e4d4c42fa09501ed5f5141d97a29
+// Last codegen commit: 6cd6678b8b1a4699fb616b2e0b52fe4787b1ffa6
 
 /// Onboarding flow lifecycle observer. Observe-only — no return values, no async, no blocking.
 abstract class AppDNAOnboardingDelegate {
@@ -96,4 +96,13 @@ abstract class AppDNAScreenDelegate {
 
   /// Veto. Return false to intercept the action and prevent default handling.
   bool onScreenAction(String screenId, Map<String, dynamic> action);
+}
+
+/// SPEC-404 — backend-driven SDK lock-state observer. Fires once per state transition (idle <-> locked). Hosts use this to surface a custom "service unavailable" banner and trigger a one-shot event-queue retry on unlock.
+abstract class AppDNALifecycleDelegate {
+  /// Fires once on idle to locked. reason in {billing_overdue, manual_admin, org_cancelled}. lockedAt is ISO-8601 (raw string for cross-platform parity; host parses if it needs a Date).
+  void onSdkRuntimeLocked(String reason, String lockedAt);
+
+  /// Fires once on locked to idle (next bootstrap returned no runtime_lock).
+  void onSdkRuntimeUnlocked();
 }

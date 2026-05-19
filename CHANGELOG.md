@@ -1,3 +1,15 @@
+## 1.0.5
+
+- `appdna_feature_parity: 1.0.64` — Flutter now wraps iOS 1.0.64 + Android
+  1.0.36, SPEC-404 hard SDK suspension. Adds the codegen'd
+  `AppDNALifecycleDelegate` interface (`onSdkRuntimeLocked` /
+  `onSdkRuntimeUnlocked`) so hosts can react to backend-driven SDK lock
+  state changes. Lock state arrives on the `/sdk/bootstrap` response's
+  new optional `runtime_lock` object when the tenant has been per-key-
+  suspended (day 20+ of billing overdue, via the SPEC-322 sweep) or
+  cancelled. Flutter remains a thin wrapper per ADR-001: enforcement
+  lives in the native layer (iOS 1.0.64 / Android 1.0.36).
+
 ## 1.0.4
 
 - `appdna_feature_parity: 1.0.63` — Flutter now wraps iOS 1.0.63 + Android

@@ -1,5 +1,12 @@
 ## 1.0.5
 
+- `appdna_feature_parity: 1.0.65` — parity marker advanced to wrap iOS 1.0.65
+  + Android 1.0.37, SPEC-036-F Phase 1 experiment-aware presentation. This is
+  a purely-native change: the native surface managers decide treatment-vs-
+  active inside `present()`, so a Flutter app embedding the native SDKs renders
+  experiment treatments automatically with no Dart change. The publishable
+  Flutter `version` stays at 1.0.5; the thin-wrapper Dart catch-up (if any) is
+  owned by SPEC-070-C. Flutter remains a thin wrapper per ADR-001.
 - `appdna_feature_parity: 1.0.64` — Flutter now wraps iOS 1.0.64 + Android
   1.0.36, SPEC-404 hard SDK suspension. Adds the codegen'd
   `AppDNALifecycleDelegate` interface (`onSdkRuntimeLocked` /

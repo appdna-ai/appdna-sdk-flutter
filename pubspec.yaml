@@ -7,13 +7,13 @@ repository: https://github.com/appdna-ai/appdna-sdk-flutter
 # AppDNA cross-platform feature-parity marker (SPEC-070-0).
 # This Flutter package wraps iOS + Android native SDKs at the version below.
 # CI (`pnpm check:version-lockstep`) verifies this matches iOS's `s.version`.
-# 1.0.65 = SPEC-036-F Phase 1 experiment-aware presentation. This is purely
-# native (the four served surface managers decide treatment-vs-active inside
-# present()); a Flutter app embedding the native iOS/Android SDK renders the
-# experiment treatment automatically — no Dart change. SPEC-070-B/C own the
-# thin-wrapper catch-up; the publishable `version` above stays put. Flutter
-# remains a thin wrapper per ADR-001.
-appdna_feature_parity: 1.0.65
+# 1.0.66 = SPEC-036-H per-item remote-config serving (read side). This is
+# purely native (flags + in-app messages read via the per-item index with
+# mega-doc fallback inside the native RemoteConfigManager); a Flutter app
+# embedding the native iOS/Android SDK gets per-item serving automatically —
+# no Dart change. SPEC-070-B/C own the thin-wrapper catch-up; the publishable
+# `version` above stays put. Flutter remains a thin wrapper per ADR-001.
+appdna_feature_parity: 1.0.66
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

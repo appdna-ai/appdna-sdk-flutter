@@ -2,7 +2,7 @@
 // Source: src/lib/sdk-delegates/index.ts
 // Generator: scripts/sdk-codegen/emit-delegates.ts
 // Regenerate: pnpm sdk-codegen
-// Last codegen commit: 6cd6678b8b1a4699fb616b2e0b52fe4787b1ffa6
+// Last codegen commit: b80b4bc4f9b6bd1a1a87d94624d18e050a2ce760
 
 /// Onboarding flow lifecycle observer. Observe-only — no return values, no async, no blocking.
 abstract class AppDNAOnboardingDelegate {

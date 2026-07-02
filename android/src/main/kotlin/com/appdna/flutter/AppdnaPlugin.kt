@@ -2,6 +2,9 @@ package com.appdna.flutter
 
 import android.app.Activity
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
 import ai.appdna.sdk.AppDNA
 import ai.appdna.sdk.AppDNABillingDelegate
 import ai.appdna.sdk.AppDNAInAppMessageDelegate
@@ -18,6 +21,10 @@ import ai.appdna.sdk.TransactionInfo
 import ai.appdna.sdk.billing.Entitlement
 import ai.appdna.sdk.billing.PurchaseOptions
 import ai.appdna.sdk.onboarding.AppDNAOnboardingDelegate
+import ai.appdna.sdk.onboarding.ElementInteractionResult
+import ai.appdna.sdk.onboarding.PermissionHandling
+import ai.appdna.sdk.onboarding.StepAdvanceResult
+import ai.appdna.sdk.onboarding.StepConfigOverride
 import ai.appdna.sdk.paywalls.AppDNAPaywallDelegate
 import ai.appdna.sdk.paywalls.PaywallAction
 import ai.appdna.sdk.paywalls.PaywallContext
@@ -31,6 +38,7 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import kotlinx.coroutines.*
+import kotlin.coroutines.resume
 
 class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChannel.StreamHandler {
     private lateinit var channel: MethodChannel
@@ -42,6 +50,13 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
     private var eventSink: EventChannel.EventSink? = null
     private var entitlementEventSink: EventChannel.EventSink? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+
+    // SPEC-070-C Phase 2a — native -> Dart sync-callback plumbing. MethodChannel
+    // invokes hop onto the main looper (Flutter platform-channel requirement);
+    // the coroutine awaits the reply with a timeout-default so a slow/absent
+    // Flutter host never deadlocks the native onboarding engine.
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val syncCallbackTimeoutMs = 5000L
 
     // -------------------------------------------------------------------------
     // Native -> Dart delegate event channels (SDK delegate parity).
@@ -588,6 +603,126 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
         "metadata" to r.metadata,
     )
 
+    // =========================================================================
+    // SPEC-070-C Phase 2a — native -> Dart sync-callback invoker + reply decode.
+    //
+    // invokeDart() posts the MethodChannel invoke onto the main looper, awaits
+    // the reply via suspendCancellableCoroutine, and wraps the whole thing in a
+    // timeout. On timeout it logs a §5 diagnostic and returns null so the caller
+    // substitutes the native default. A channel error / notImplemented also maps
+    // to null (default). The Dart handler builds the reply maps whose shapes the
+    // to*() decoders below match.
+    // =========================================================================
+
+    private suspend fun invokeDart(method: String, args: Map<String, Any?>): Any? {
+        return try {
+            withTimeout(syncCallbackTimeoutMs) {
+                suspendCancellableCoroutine<Any?> { cont ->
+                    mainHandler.post {
+                        try {
+                            syncCallbackChannel.invokeMethod(
+                                method,
+                                args,
+                                object : MethodChannel.Result {
+                                    override fun success(result: Any?) {
+                                        if (cont.isActive) cont.resume(result)
+                                    }
+                                    override fun error(
+                                        code: String,
+                                        message: String?,
+                                        details: Any?,
+                                    ) {
+                                        if (cont.isActive) cont.resume(null)
+                                    }
+                                    override fun notImplemented() {
+                                        if (cont.isActive) cont.resume(null)
+                                    }
+                                },
+                            )
+                        } catch (t: Throwable) {
+                            // Channel torn down mid-flight (engine detach) etc.
+                            if (cont.isActive) cont.resume(null)
+                        }
+                    }
+                }
+            }
+        } catch (e: TimeoutCancellationException) {
+            Log.w("AppDNA", "sync_callbacks timeout: $method")
+            null
+        }
+    }
+
+    /** Coerce a decoded reply value into a `Map<String, Any>` (non-null values). */
+    private fun asStringMap(v: Any?): Map<String, Any> {
+        val m = v as? Map<*, *> ?: return emptyMap()
+        val out = HashMap<String, Any>()
+        for ((k, value) in m) {
+            if (k is String && value != null) out[k] = value
+        }
+        return out
+    }
+
+    /**
+     * `{type:"proceed"}` | `{type:"proceedWithData",data:{…}}` |
+     * `{type:"block",message}` | `{type:"skipTo",stepId,data?}` |
+     * `{type:"stay",message?}`  →  [StepAdvanceResult] (default Proceed).
+     */
+    private fun toStepAdvanceResult(reply: Any?): StepAdvanceResult {
+        val map = reply as? Map<*, *> ?: return StepAdvanceResult.Proceed
+        return when (map["type"] as? String ?: "proceed") {
+            "proceedWithData" -> StepAdvanceResult.ProceedWithData(asStringMap(map["data"]))
+            "block" -> StepAdvanceResult.Block(map["message"] as? String ?: "")
+            "skipTo" -> StepAdvanceResult.SkipTo(
+                map["stepId"] as? String ?: "",
+                (map["data"] as? Map<*, *>)?.let { asStringMap(it) },
+            )
+            "stay" -> StepAdvanceResult.Stay(map["message"] as? String)
+            else -> StepAdvanceResult.Proceed
+        }
+    }
+
+    /** map-or-null → [StepConfigOverride]? (field-by-field; default null). */
+    private fun toStepConfigOverride(reply: Any?): StepConfigOverride? {
+        val map = reply as? Map<*, *> ?: return null
+        return StepConfigOverride(
+            fieldDefaults = (map["fieldDefaults"] as? Map<*, *>)?.let { asStringMap(it) },
+            title = map["title"] as? String,
+            subtitle = map["subtitle"] as? String,
+            ctaText = map["ctaText"] as? String,
+            layoutOverrides = (map["layoutOverrides"] as? Map<*, *>)?.let { asStringMap(it) },
+        )
+    }
+
+    /** map-or-null → [ElementInteractionResult]? (default null). */
+    private fun toElementInteractionResult(reply: Any?): ElementInteractionResult? {
+        val map = reply as? Map<*, *> ?: return null
+        val patches = (map["fieldConfigPatches"] as? Map<*, *>)?.let { raw ->
+            val out = HashMap<String, Map<String, Any>>()
+            for ((k, v) in raw) {
+                if (k is String) out[k] = asStringMap(v)
+            }
+            out
+        }
+        return ElementInteractionResult(
+            fieldConfigPatches = patches,
+            inputValuePatches = (map["inputValuePatches"] as? Map<*, *>)?.let { asStringMap(it) },
+            advance = map["advance"] as? Boolean ?: false,
+        )
+    }
+
+    /**
+     * map-or-null → [PermissionHandling]?. `{type:"handledByHost",granted}`
+     * short-circuits the OS prompt; anything else → Proceed; null → null
+     * (run the native flow).
+     */
+    private fun toPermissionHandling(reply: Any?): PermissionHandling? {
+        val map = reply as? Map<*, *> ?: return null
+        return when (map["type"] as? String ?: "proceed") {
+            "handledByHost" -> PermissionHandling.HandledByHost(map["granted"] as? Boolean ?: false)
+            else -> PermissionHandling.Proceed
+        }
+    }
+
     /** All 9 standard paywall lifecycle methods + post-purchase hooks. */
     private inner class PaywallDelegateForwarder : AppDNAPaywallDelegate {
         override fun onPaywallPresented(paywallId: String) {
@@ -718,13 +853,75 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
             )
         }
 
-        // SPEC-083 async hooks (onBeforeStepAdvance / onBeforeStepRender) are
-        // NOT forwarded in v1. Both return values back to the SDK (gating the
-        // step transition + overriding step config), which the one-way
-        // event-channel can't carry. Defaults remain (Proceed / null) — they
-        // matched the native SDK's pre-SPEC-083 behavior. A future hookup
-        // would need the sync_callbacks MethodChannel with a Dart-side
-        // CompletableDeferred handshake.
+        // SPEC-070-C Phase 2a — async return-value hooks. Each invokes the Dart
+        // host over the sync_callbacks channel, awaits the reply map, converts
+        // it to the native return DTO, and falls back to the SDK default on
+        // null/timeout. The invoker + to*() decoders live on the outer plugin.
+
+        override suspend fun onBeforeStepAdvance(
+            flowId: String,
+            fromStepId: String,
+            stepIndex: Int,
+            stepType: String,
+            responses: Map<String, Any>,
+            stepData: Map<String, Any>?,
+        ): StepAdvanceResult {
+            val args = mutableMapOf<String, Any?>(
+                "flowId" to flowId,
+                "fromStepId" to fromStepId,
+                "stepIndex" to stepIndex,
+                "stepType" to stepType,
+                "responses" to responses,
+            )
+            if (stepData != null) args["stepData"] = stepData
+            return toStepAdvanceResult(invokeDart("onBeforeStepAdvance", args))
+        }
+
+        override suspend fun onBeforeStepRender(
+            flowId: String,
+            stepId: String,
+            stepIndex: Int,
+            stepType: String,
+            responses: Map<String, Any>,
+        ): StepConfigOverride? {
+            return toStepConfigOverride(
+                invokeDart(
+                    "onBeforeStepRender",
+                    mapOf(
+                        "flowId" to flowId,
+                        "stepId" to stepId,
+                        "stepIndex" to stepIndex,
+                        "stepType" to stepType,
+                        "responses" to responses,
+                    ),
+                ),
+            )
+        }
+
+        override suspend fun onElementInteraction(
+            flowId: String,
+            stepId: String,
+            blockId: String,
+            action: String,
+            value: String?,
+            inputValues: Map<String, Any>,
+        ): ElementInteractionResult? {
+            val args = mutableMapOf<String, Any?>(
+                "flowId" to flowId,
+                "stepId" to stepId,
+                "blockId" to blockId,
+                "action" to action,
+                "inputValues" to inputValues,
+            )
+            if (value != null) args["value"] = value
+            return toElementInteractionResult(invokeDart("onElementInteraction", args))
+        }
+
+        override suspend fun onPermissionRequest(permissionType: String): PermissionHandling? {
+            return toPermissionHandling(
+                invokeDart("onPermissionRequest", mapOf("permissionType" to permissionType)),
+            )
+        }
     }
 
     /** Survey lifecycle (3 methods). */

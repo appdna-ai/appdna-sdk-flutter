@@ -13,6 +13,10 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     // deallocated — the iOS SDK holds delegates with `weak` semantics on
     // most surfaces and `static weak` on push/billing/screen).
     private var onboardingForwarder: OnboardingDelegateForwarder?
+    // SPEC-070-C Phase 2a — native -> Dart invoker for the sync_callbacks
+    // channel. Held strongly so it (and its FlutterMethodChannel) outlive
+    // register(); shared with the onboarding forwarder for its async hooks.
+    private var syncInvoker: SyncCallbackInvoker?
     private var paywallForwarder: PaywallDelegateForwarder?
     private var surveyForwarder: SurveyDelegateForwarder?
     private var inAppMessageForwarder: InAppMessageDelegateForwarder?
@@ -55,10 +59,21 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         // on onCancel the delegate is cleared.
         let messenger = registrar.messenger()
 
+        // SPEC-070-C Phase 2a — sync_callbacks MethodChannel (native -> Dart).
+        // The Dart side sets the method-call handler on this same channel name;
+        // native uses it to invokeMethod async hooks + veto decisions and await
+        // the reply. One shared invoker instance carries the timeout-default.
+        let syncChannel = FlutterMethodChannel(
+            name: "com.appdna.sdk/sync_callbacks", binaryMessenger: messenger
+        )
+        let syncInvoker = SyncCallbackInvoker(channel: syncChannel)
+        instance.syncInvoker = syncInvoker
+
         let onboardingChannel = FlutterEventChannel(
             name: "com.appdna.sdk/events/onboarding", binaryMessenger: messenger
         )
         let onboardingForwarder = OnboardingDelegateForwarder()
+        onboardingForwarder.invoker = syncInvoker
         instance.onboardingForwarder = onboardingForwarder
         onboardingChannel.setStreamHandler(onboardingForwarder)
 
@@ -484,6 +499,10 @@ private func sendEvent(_ sink: FlutterEventSink?, type: String, args: [String: A
 
 private class OnboardingDelegateForwarder: NSObject, AppDNAOnboardingDelegate, FlutterStreamHandler {
     private var sink: FlutterEventSink?
+    /// SPEC-070-C Phase 2a — native -> Dart invoker for the async return-value
+    /// hooks. Injected in `register(...)`. When nil (should not happen once
+    /// registered), the hooks fall back to their native SDK defaults.
+    weak var invoker: SyncCallbackInvoker?
 
     func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
         self.sink = events
@@ -524,9 +543,10 @@ private class OnboardingDelegateForwarder: NSObject, AppDNAOnboardingDelegate, F
         ])
     }
 
-    // SPEC-083 async hooks: forward as observe-only events for visibility,
-    // but return the default values. Sync-veto / async-return bridging is
-    // a follow-up (see InAppMessage.shouldShowMessage note below).
+    // SPEC-070-C Phase 2a — async return-value hooks. Each invokes the Dart
+    // host over the sync_callbacks channel, awaits the reply (a `[String: Any]?`
+    // built by the host from its return DTO), converts it into the concrete
+    // native return type, and falls back to the SDK default on nil/timeout.
     func onBeforeStepAdvance(
         flowId: String,
         fromStepId: String,
@@ -535,15 +555,17 @@ private class OnboardingDelegateForwarder: NSObject, AppDNAOnboardingDelegate, F
         responses: [String: Any],
         stepData: [String: Any]?
     ) async -> StepAdvanceResult {
-        sendEvent(sink, type: "onBeforeStepAdvance", args: [
+        guard let invoker = invoker else { return .proceed }
+        var args: [String: Any] = [
             "flowId": flowId,
             "fromStepId": fromStepId,
             "stepIndex": stepIndex,
             "stepType": stepType,
-            "responses": responses,
-            "stepData": stepData
-        ])
-        return .proceed
+            "responses": responses
+        ]
+        if let stepData = stepData { args["stepData"] = stepData }
+        let reply = await invoker.invokeDart("onBeforeStepAdvance", args)
+        return Self.stepAdvanceResult(from: reply)
     }
 
     func onBeforeStepRender(
@@ -553,14 +575,117 @@ private class OnboardingDelegateForwarder: NSObject, AppDNAOnboardingDelegate, F
         stepType: String,
         responses: [String: Any]
     ) async -> StepConfigOverride? {
-        sendEvent(sink, type: "onBeforeStepRender", args: [
+        guard let invoker = invoker else { return nil }
+        let reply = await invoker.invokeDart("onBeforeStepRender", [
             "flowId": flowId,
             "stepId": stepId,
             "stepIndex": stepIndex,
             "stepType": stepType,
             "responses": responses
         ])
-        return nil
+        return Self.stepConfigOverride(from: reply)
+    }
+
+    func onElementInteraction(
+        flowId: String,
+        stepId: String,
+        blockId: String,
+        action: String,
+        value: String?,
+        inputValues: [String: Any]
+    ) async -> ElementInteractionResult? {
+        guard let invoker = invoker else { return nil }
+        var args: [String: Any] = [
+            "flowId": flowId,
+            "stepId": stepId,
+            "blockId": blockId,
+            "action": action,
+            "inputValues": inputValues
+        ]
+        if let value = value { args["value"] = value }
+        let reply = await invoker.invokeDart("onElementInteraction", args)
+        return Self.elementInteractionResult(from: reply)
+    }
+
+    func onPermissionRequest(_ permissionType: String) async -> PermissionHandling? {
+        guard let invoker = invoker else { return nil }
+        let reply = await invoker.invokeDart("onPermissionRequest", [
+            "permissionType": permissionType
+        ])
+        return Self.permissionHandling(from: reply)
+    }
+
+    // MARK: Dart reply map -> native return DTO conversions
+    //
+    // Canonical reply shapes (host builds these; native decodes them). Enum
+    // return types carry a `type` discriminator; struct return types map
+    // field-by-field. Any missing/unknown shape falls back to the SDK default.
+
+    /// `{type:"proceed"}` | `{type:"proceedWithData",data:{…}}` |
+    /// `{type:"block",message:String}` | `{type:"skipTo",stepId:String,data:{…}?}` |
+    /// `{type:"stay",message:String?}`  →  `StepAdvanceResult` (default `.proceed`).
+    private static func stepAdvanceResult(from reply: Any?) -> StepAdvanceResult {
+        guard let map = reply as? [String: Any] else { return .proceed }
+        switch (map["type"] as? String) ?? "proceed" {
+        case "proceedWithData":
+            return .proceedWithData(map["data"] as? [String: Any] ?? [:])
+        case "block":
+            return .block(message: (map["message"] as? String) ?? "")
+        case "skipTo":
+            let stepId = (map["stepId"] as? String) ?? ""
+            if let data = map["data"] as? [String: Any], !data.isEmpty {
+                return .skipToWithData(stepId: stepId, data: data)
+            }
+            return .skipTo(stepId: stepId)
+        case "stay":
+            return .stay(message: map["message"] as? String)
+        default:
+            return .proceed
+        }
+    }
+
+    /// map-or-null → `StepConfigOverride?` (field-by-field; default nil).
+    private static func stepConfigOverride(from reply: Any?) -> StepConfigOverride? {
+        guard let map = reply as? [String: Any] else { return nil }
+        return StepConfigOverride(
+            fieldDefaults: map["fieldDefaults"] as? [String: Any],
+            title: map["title"] as? String,
+            subtitle: map["subtitle"] as? String,
+            ctaText: map["ctaText"] as? String,
+            layoutOverrides: map["layoutOverrides"] as? [String: Any]
+        )
+    }
+
+    /// map-or-null → `ElementInteractionResult?` (default nil). `fieldConfigPatches`
+    /// is decoded element-by-element to avoid a brittle nested bridged-dictionary cast.
+    private static func elementInteractionResult(from reply: Any?) -> ElementInteractionResult? {
+        guard let map = reply as? [String: Any] else { return nil }
+        var patches: [String: [String: Any]]? = nil
+        if let raw = map["fieldConfigPatches"] as? [String: Any] {
+            var out: [String: [String: Any]] = [:]
+            for (k, v) in raw {
+                if let inner = v as? [String: Any] { out[k] = inner }
+            }
+            patches = out
+        }
+        return ElementInteractionResult(
+            fieldConfigPatches: patches,
+            inputValuePatches: map["inputValuePatches"] as? [String: Any],
+            advance: (map["advance"] as? Bool) ?? false
+        )
+    }
+
+    /// map-or-null → `PermissionHandling?`. `{type:"handledByHost",granted:Bool}`
+    /// short-circuits the OS prompt; anything else → `.proceed`; null → nil
+    /// (run the native flow).
+    private static func permissionHandling(from reply: Any?) -> PermissionHandling? {
+        guard let map = reply as? [String: Any] else { return nil }
+        switch (map["type"] as? String) ?? "proceed" {
+        case "handledByHost":
+            return .handledByHost(granted: (map["granted"] as? Bool) ?? false)
+        default:
+            return .proceed
+        }
     }
 }
 

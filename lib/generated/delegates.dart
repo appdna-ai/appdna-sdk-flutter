@@ -2,107 +2,131 @@
 // Source: src/lib/sdk-delegates/index.ts
 // Generator: scripts/sdk-codegen/emit-delegates.ts
 // Regenerate: pnpm sdk-codegen
-// Last codegen commit: b80b4bc4f9b6bd1a1a87d94624d18e050a2ce760
+// Last codegen commit: 9b514e667c4204268ef456415a60d2f7a7f59a9b
 
-/// Onboarding flow lifecycle observer. Observe-only — no return values, no async, no blocking.
+/// Onboarding flow lifecycle observer + SPEC-083/419/421 async return-value hooks (routed via the sync_callbacks channel on Flutter/RN; native-hand-written on iOS, hand-written-Android per D11).
 abstract class AppDNAOnboardingDelegate {
-  void onOnboardingStarted(String flowId);
+  void onOnboardingStarted(String flowId) {}
 
-  void onOnboardingStepChanged(String flowId, String stepId, int stepIndex, int totalSteps);
+  void onOnboardingStepChanged(String flowId, String stepId, int stepIndex, int totalSteps) {}
 
-  void onOnboardingCompleted(String flowId, Map<String, dynamic> responses);
+  void onOnboardingCompleted(String flowId, Map<String, dynamic> responses) {}
 
-  void onOnboardingDismissed(String flowId, int atStep);
+  void onOnboardingDismissed(String flowId, int atStep) {}
+
+  /// Async advance hook. Return .proceed (default) or a block/skip result.
+  Future<Map<String, dynamic>> onBeforeStepAdvance(String flowId, String fromStepId, int stepIndex, String stepType, Map<String, dynamic> responses, Map<String, dynamic>? stepData) async => <String, dynamic>{};
+
+  /// Async pre-render hook. Return null (default) or a config override.
+  Future<Map<String, dynamic>?> onBeforeStepRender(String flowId, String stepId, int stepIndex, String stepType, Map<String, dynamic> responses) async => null;
+
+  /// Async element-interaction hook. Return null (default) or a live-state result.
+  Future<Map<String, dynamic>?> onElementInteraction(String flowId, String stepId, String blockId, String action, String? value, Map<String, dynamic> inputValues) async => null;
+
+  /// Async permission pre-hook. Return .handledByHost(granted:) to short-circuit, or null to run the native flow.
+  Future<Map<String, dynamic>?> onPermissionRequest(String permissionType) async => null;
+
+  void onPermissionResult(String flowId, String stepId, String permissionType, bool granted) {}
 }
 
 /// 13 paywall lifecycle methods incl. purchase, restore lifecycle (started/completed/failed), post-purchase deep-link/next-step.
 abstract class AppDNAPaywallDelegate {
-  void onPaywallPresented(String paywallId);
+  void onPaywallPresented(String paywallId) {}
 
-  void onPaywallAction(String paywallId, String action);
+  void onPaywallAction(String paywallId, String action) {}
 
-  void onPaywallPurchaseStarted(String paywallId, String productId);
+  void onPaywallPurchaseStarted(String paywallId, String productId) {}
 
-  void onPaywallPurchaseCompleted(String paywallId, String productId, Map<String, dynamic> transaction);
+  void onPaywallPurchaseCompleted(String paywallId, String productId, Map<String, dynamic> transaction) {}
 
   /// error type: Swift Error / Kotlin Throwable / Dart Object / TS unknown.
-  void onPaywallPurchaseFailed(String paywallId, Object error);
+  void onPaywallPurchaseFailed(String paywallId, Object error) {}
 
-  void onPaywallRestoreStarted(String paywallId);
+  void onPaywallRestoreStarted(String paywallId) {}
 
-  void onPaywallRestoreCompleted(String paywallId, List<String> restoredProductIds);
+  void onPaywallRestoreCompleted(String paywallId, List<String> restoredProductIds) {}
 
-  void onPaywallRestoreFailed(String paywallId, Object error);
+  void onPaywallRestoreFailed(String paywallId, Object error) {}
 
-  void onPaywallDismissed(String paywallId);
+  void onPaywallDismissed(String paywallId) {}
 }
 
 /// Survey lifecycle observer.
 abstract class AppDNASurveyDelegate {
-  void onSurveyPresented(String surveyId);
+  void onSurveyPresented(String surveyId) {}
 
-  void onSurveySubmitted(String surveyId, Map<String, dynamic> response);
+  /// Survey completed. responses = list of SurveyResponse maps (native emits this; SPEC-070-C §3.9).
+  void onSurveyCompleted(String surveyId, List<Map<String, dynamic>> responses) {}
 
-  void onSurveyDismissed(String surveyId);
+  /// DEPRECATED (1.0.5) — native never emitted this; use onSurveyCompleted. Non-breaking forwarding shim.
+  @Deprecated('Use onSurveyCompleted instead.')
+  void onSurveySubmitted(String surveyId, Map<String, dynamic> response) {}
+
+  void onSurveyDismissed(String surveyId) {}
 }
 
 /// In-app message lifecycle + show veto.
 abstract class AppDNAInAppMessageDelegate {
-  void onMessagePresented(String messageId);
+  /// Message shown with its trigger event (native emits this; SPEC-070-C §3.10).
+  void onMessageShown(String messageId, String trigger) {}
 
-  void onMessageAction(String messageId, String action);
+  /// DEPRECATED (1.0.5) — native never emitted this; use onMessageShown. Non-breaking forwarding shim.
+  @Deprecated('Use onMessageShown instead.')
+  void onMessagePresented(String messageId) {}
 
-  void onMessageDismissed(String messageId);
+  void onMessageAction(String messageId, String action) {}
+
+  void onMessageDismissed(String messageId) {}
 
   /// Veto. Return false to suppress display.
-  bool shouldShowMessage(String messageId);
+  bool shouldShowMessage(String messageId) => true;
 }
 
 /// Push notification lifecycle.
 abstract class AppDNAPushDelegate {
-  void onPushTokenRegistered(String token);
+  void onPushTokenRegistered(String token) {}
 
-  void onPushReceived(Map<String, dynamic> notification, bool inForeground);
+  void onPushReceived(Map<String, dynamic> notification, bool inForeground) {}
 
-  void onPushTapped(Map<String, dynamic> notification, String? actionId);
+  void onPushTapped(Map<String, dynamic> notification, String? actionId) {}
 }
 
 /// Direct (non-paywall) billing observer.
 abstract class AppDNABillingDelegate {
-  void onPurchaseCompleted(String productId, Map<String, dynamic> transaction);
+  void onPurchaseCompleted(String productId, Map<String, dynamic> transaction) {}
 
-  void onPurchaseFailed(String productId, Object error);
+  void onPurchaseFailed(String productId, Object error) {}
 
-  void onEntitlementsChanged(List<String> entitlements);
+  void onEntitlementsChanged(List<String> entitlements) {}
 
-  void onRestoreCompleted(List<String> restoredProductIds);
+  void onRestoreCompleted(List<String> restoredProductIds) {}
 }
 
 /// Deep link receiver with optional veto.
 abstract class AppDNADeepLinkDelegate {
   /// Veto. Return false to suppress deep-link processing (e.g. defer until login).
-  bool shouldOpen(String url, Map<String, dynamic> params);
+  bool shouldOpen(String url, Map<String, dynamic> params) => true;
 
-  void onDeepLinkReceived(String url, Map<String, dynamic> params);
+  void onDeepLinkReceived(String url, Map<String, dynamic> params) {}
 }
 
 /// Server-driven screen lifecycle. 4 methods (last has Bool veto).
 abstract class AppDNAScreenDelegate {
-  void onScreenPresented(String screenId);
+  void onScreenPresented(String screenId) {}
 
-  void onScreenDismissed(String screenId, Map<String, dynamic> result);
+  void onScreenDismissed(String screenId, Map<String, dynamic> result) {}
 
-  void onFlowCompleted(String flowId, Map<String, dynamic> result);
+  void onFlowCompleted(String flowId, Map<String, dynamic> result) {}
 
   /// Veto. Return false to intercept the action and prevent default handling.
-  bool onScreenAction(String screenId, Map<String, dynamic> action);
+  bool onScreenAction(String screenId, Map<String, dynamic> action) => true;
 }
 
 /// SPEC-404 — backend-driven SDK lock-state observer. Fires once per state transition (idle <-> locked). Hosts use this to surface a custom "service unavailable" banner and trigger a one-shot event-queue retry on unlock.
 abstract class AppDNALifecycleDelegate {
   /// Fires once on idle to locked. reason in {billing_overdue, manual_admin, org_cancelled}. lockedAt is ISO-8601 (raw string for cross-platform parity; host parses if it needs a Date).
-  void onSdkRuntimeLocked(String reason, String lockedAt);
+  void onSdkRuntimeLocked(String reason, String lockedAt) {}
 
   /// Fires once on locked to idle (next bootstrap returned no runtime_lock).
-  void onSdkRuntimeUnlocked();
+  void onSdkRuntimeUnlocked() {}
 }

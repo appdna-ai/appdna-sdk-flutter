@@ -586,8 +586,13 @@ class AppDNAInAppMessagesModule {
     final d = _delegate;
     if (d == null || type == null) return;
     switch (type) {
-      case 'onMessagePresented':
-        d.onMessagePresented(args['messageId'] as String? ?? '');
+      case 'onMessageShown':
+        final messageId = args['messageId'] as String? ?? '';
+        final trigger = args['trigger'] as String? ?? '';
+        d.onMessageShown(messageId, trigger);
+        // Non-breaking shim: 1.0.5 hosts that overrode onMessagePresented still fire.
+        // ignore: deprecated_member_use_from_same_package
+        d.onMessagePresented(messageId);
         break;
       case 'onMessageAction':
         d.onMessageAction(
@@ -640,11 +645,19 @@ class AppDNASurveysModule {
       case 'onSurveyPresented':
         d.onSurveyPresented(args['surveyId'] as String? ?? '');
         break;
-      case 'onSurveySubmitted':
+      case 'onSurveyCompleted':
+        final surveyId = args['surveyId'] as String? ?? '';
+        final responses = (args['responses'] as List?)
+                ?.map((e) => (e as Map).cast<String, dynamic>())
+                .toList() ??
+            <Map<String, dynamic>>[];
+        d.onSurveyCompleted(surveyId, responses);
+        // Non-breaking shim: 1.0.5 hosts that overrode onSurveySubmitted still fire
+        // (with the first response, matching the old single-response shape).
+        // ignore: deprecated_member_use_from_same_package
         d.onSurveySubmitted(
-          args['surveyId'] as String? ?? '',
-          (args['response'] as Map?)?.cast<String, dynamic>() ??
-              <String, dynamic>{},
+          surveyId,
+          responses.isNotEmpty ? responses.first : <String, dynamic>{},
         );
         break;
       case 'onSurveyDismissed':

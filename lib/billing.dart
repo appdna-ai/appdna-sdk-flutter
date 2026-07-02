@@ -170,6 +170,12 @@ class AppDNABilling {
     return await _channel.invokeMethod('hasActiveSubscription');
   }
 
+  /// SPEC-070-C §3.8 — force a refresh of the native entitlement cache from
+  /// the store / backend. Real on both platforms.
+  Future<void> refreshEntitlementCache() async {
+    await _channel.invokeMethod('refreshEntitlementCache');
+  }
+
   /// Get all current entitlements for the user.
   Future<List<Entitlement>> getEntitlements() async {
     final result = await _channel.invokeMethod('getEntitlements');

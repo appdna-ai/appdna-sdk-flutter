@@ -8,7 +8,9 @@ import android.util.Log
 import ai.appdna.sdk.AppDNA
 import ai.appdna.sdk.AppDNABillingDelegate
 import ai.appdna.sdk.AppDNAInAppMessageDelegate
+import ai.appdna.sdk.AppDNAInitDelegate
 import ai.appdna.sdk.AppDNAOptions
+import ai.appdna.sdk.ForcedTheme
 import ai.appdna.sdk.AppDNAPushDelegate
 import ai.appdna.sdk.AppDNADeepLinkDelegate
 import ai.appdna.sdk.AppDNASurveyDelegate
@@ -78,6 +80,7 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
     private lateinit var billingEventChannel: EventChannel
     private lateinit var deepLinkEventChannel: EventChannel
     private lateinit var screenEventChannel: EventChannel
+    private lateinit var initEventChannel: EventChannel
     private lateinit var syncCallbackChannel: MethodChannel
 
     private var paywallEventSink: EventChannel.EventSink? = null
@@ -88,6 +91,7 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
     private var billingDelegateEventSink: EventChannel.EventSink? = null
     private var deepLinkEventSink: EventChannel.EventSink? = null
     private var screenEventSink: EventChannel.EventSink? = null
+    private var initEventSink: EventChannel.EventSink? = null
 
     // Forwarder instances we install on the native modules. Kept as properties
     // so onCancel() can call setDelegate(null) cleanly on stream tear-down.
@@ -99,6 +103,7 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
     private var billingForwarder: BillingDelegateForwarder? = null
     private var deepLinkForwarder: DeepLinkDelegateForwarder? = null
     private var screenForwarder: ScreenDelegateForwarder? = null
+    private var initForwarder: InitDelegateForwarder? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         context = binding.applicationContext
@@ -276,6 +281,24 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
             }
         })
 
+        // SPEC-070-C §3.1 — Android-only init-degradation delegate stream.
+        // onListen wires an AppDNAInitDelegate forwarder into the native SDK;
+        // onCancel clears it. (iOS registers this channel as a no-op.)
+        initEventChannel = EventChannel(binding.binaryMessenger, "com.appdna.sdk/events/init")
+        initEventChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                initEventSink = events
+                val fwd = InitDelegateForwarder()
+                initForwarder = fwd
+                AppDNA.setInitDelegate(fwd)
+            }
+            override fun onCancel(arguments: Any?) {
+                AppDNA.setInitDelegate(null)
+                initForwarder = null
+                initEventSink = null
+            }
+        })
+
         // Synchronous-veto MethodChannel. v1 only ships the InAppMessage
         // observe path (the veto fires through the in_app_message event
         // channel and the native side defaults shouldShowMessage() to true).
@@ -314,6 +337,7 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
         billingEventChannel.setStreamHandler(null)
         deepLinkEventChannel.setStreamHandler(null)
         screenEventChannel.setStreamHandler(null)
+        initEventChannel.setStreamHandler(null)
         syncCallbackChannel.setMethodCallHandler(null)
         runCatching { AppDNA.paywall.setDelegate(null) }
         runCatching { AppDNA.onboarding.setDelegate(null) }
@@ -323,6 +347,7 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
         runCatching { AppDNA.billing.setDelegate(null) }
         runCatching { AppDNA.deepLinks.setDelegate(null) }
         runCatching { AppDNA.screenDelegate = null }
+        runCatching { AppDNA.setInitDelegate(null) }
         scope.cancel()
     }
 
@@ -559,9 +584,143 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                 result.success(null)
             }
 
+            // MARK: SPEC-070-C §3.1 lifecycle / core
+            "registerBackgroundTasks" -> {
+                AppDNA.registerBackgroundTasks()
+                result.success(null)
+            }
+            "isConsentGranted" -> {
+                result.success(AppDNA.isConsentGranted())
+            }
+            // Android `diagnose()` returns the report String (iOS returns Void).
+            "diagnose" -> {
+                result.success(AppDNA.diagnose())
+            }
+            "getUserTraits" -> {
+                result.success(AppDNA.getUserTraits())
+            }
+            // Android-only forced-theme override. Dart passes 'light'/'dark'/
+            // 'system'/null; map to the ForcedTheme enum (null = follow system).
+            "setForcedTheme" -> {
+                val theme = when (call.argument<String>("theme")?.lowercase()) {
+                    "light" -> ForcedTheme.LIGHT
+                    "dark" -> ForcedTheme.DARK
+                    "system" -> ForcedTheme.SYSTEM
+                    else -> null
+                }
+                AppDNA.setForcedTheme(theme)
+                result.success(null)
+            }
+            "getForcedTheme" -> {
+                result.success(AppDNA.getForcedTheme()?.name?.lowercase())
+            }
+            // Android-only last-init-error read → {message, type} or null.
+            "getLastInitError" -> {
+                val err = AppDNA.lastInitError
+                result.success(err?.let { throwableToMap(it) })
+            }
+
+            // MARK: SPEC-070-C §3.2 events
+            "notifyScreenAppeared" -> {
+                val screenName = call.argument<String>("screenName")!!
+                AppDNA.notifyScreenAppeared(screenName)
+                result.success(null)
+            }
+
+            // MARK: SPEC-070-C §3.3 config
+            "forceRefreshConfig" -> {
+                AppDNA.forceRefreshConfig()
+                result.success(null)
+            }
+            "debugAppliedConfigVersion" -> {
+                result.success(AppDNA.debugAppliedConfigVersion(call.argument<String>("flowId")))
+            }
+
+            // MARK: SPEC-070-C §3.7 paywall
+            "presentPaywallByPlacement" -> {
+                val placement = call.argument<String>("placement")!!
+                val contextMap = call.argument<Map<String, Any>>("context")
+                val paywallContext = contextMap?.let { map ->
+                    val p = map["placement"] as? String ?: placement
+                    PaywallContext(
+                        placement = p,
+                        experiment = map["experiment"] as? String,
+                        variant = map["variant"] as? String,
+                    )
+                }
+                activity?.let { AppDNA.presentPaywallByPlacement(it, placement, paywallContext) }
+                result.success(null)
+            }
+            "showPaywall" -> {
+                AppDNA.showPaywall(call.argument<String>("id")!!)
+                result.success(null)
+            }
+            "skipNextAutoDismissOnRestore" -> {
+                AppDNA.paywall.skipNextAutoDismissOnRestore = call.argument<Boolean>("value") ?: false
+                result.success(null)
+            }
+
+            // MARK: SPEC-070-C §3.9 surveys
+            "showSurvey" -> {
+                AppDNA.showSurvey(call.argument<String>("id")!!)
+                result.success(null)
+            }
+
+            // MARK: SPEC-070-C §3.11 push
+            // §3.14: Android has no dedicated registerForPush — route to
+            // push.requestPermission (needs a foreground Activity).
+            "registerForPush" -> {
+                val act = activity
+                if (act == null) {
+                    result.success(false)
+                    return
+                }
+                scope.launch {
+                    try {
+                        result.success(AppDNA.push.requestPermission(act))
+                    } catch (e: Exception) {
+                        result.success(false)
+                    }
+                }
+            }
+            // Android-only: hand the current activity's launch intent to the SDK
+            // so it can attribute + route a notification tap.
+            "handlePushTap" -> {
+                result.success(AppDNA.handlePushTap(activity?.intent))
+            }
+            // Android-only: feed a fresh FCM token into the SDK.
+            "onNewPushToken" -> {
+                AppDNA.onNewPushToken(call.argument<String>("token")!!)
+                result.success(null)
+            }
+
+            // MARK: SPEC-070-C §3.13 location
+            "getLocationData" -> {
+                val fieldId = call.argument<String>("fieldId")!!
+                val loc = AppDNA.getLocationData(fieldId)
+                result.success(loc?.let { locationDataToMap(it) })
+            }
+
             else -> result.notImplemented()
         }
     }
+
+    // SPEC-070-C §3.13 — LocationData -> channel map (snake_case keys matching
+    // the Dart `LocationData.fromMap` contract).
+    private fun locationDataToMap(l: ai.appdna.sdk.onboarding.LocationData): Map<String, Any?> = mapOf(
+        "formatted_address" to l.formatted_address,
+        "city" to l.city,
+        "state" to l.state,
+        "state_code" to l.state_code,
+        "country" to l.country,
+        "country_code" to l.country_code,
+        "latitude" to l.latitude,
+        "longitude" to l.longitude,
+        "timezone" to l.timezone,
+        "timezone_offset" to l.timezone_offset,
+        "postal_code" to l.postal_code,
+        "raw_query" to l.raw_query,
+    )
 
     private fun handleBilling(call: MethodCall, result: Result) {
         when (call.method) {
@@ -656,6 +815,18 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                         result.success(entitlements.map { it.toMap() })
                     } catch (e: Exception) {
                         result.error("ENTITLEMENTS_ERROR", e.message, null)
+                    }
+                }
+            }
+            // SPEC-070-C §3.8 — force-refresh the native entitlement cache
+            // (suspend on sdk-android).
+            "refreshEntitlementCache" -> {
+                scope.launch {
+                    try {
+                        AppDNA.billing.refreshEntitlementCache()
+                        result.success(null)
+                    } catch (e: Exception) {
+                        result.error("REFRESH_CACHE_ERROR", e.message, null)
                     }
                 }
             }
@@ -1259,6 +1430,17 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                 mapOf("screenId" to screenId, "action" to action),
             )
             return true
+        }
+    }
+
+    /**
+     * SPEC-070-C §3.1 — Android-only init-degradation delegate. Forwards
+     * `onInitDegraded(reason)` as an observe-only `{ message, type }` map on
+     * the init event channel.
+     */
+    private inner class InitDelegateForwarder : AppDNAInitDelegate {
+        override fun onInitDegraded(reason: Throwable) {
+            emit(initEventSink, "onInitDegraded", mapOf("error" to throwableToMap(reason)))
         }
     }
 }

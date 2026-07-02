@@ -7,6 +7,7 @@ import 'models/web_entitlement.dart';
 import 'models/deferred_deep_link.dart';
 import 'models/paywall_context.dart';
 import 'models/appdna_options.dart';
+import 'models/location_data.dart';
 import 'billing.dart';
 
 export 'models/web_entitlement.dart';
@@ -14,6 +15,7 @@ export 'models/deferred_deep_link.dart';
 export 'models/paywall_context.dart';
 export 'models/survey_result.dart';
 export 'models/appdna_options.dart';
+export 'models/location_data.dart';
 export 'billing.dart';
 export 'push.dart';
 
@@ -51,6 +53,14 @@ class AppDNA {
   static const MethodChannel _syncChannel =
       MethodChannel('com.appdna.sdk/sync_callbacks');
   static bool _syncCallbacksWired = false;
+
+  /// SPEC-070-C §3.1 — Android-only init-degradation delegate stream. Native
+  /// emits `onInitDegraded` here when `configure()` completes in a degraded
+  /// state. iOS has no equivalent (documented no-op: the stream never emits).
+  static const EventChannel _initChannel =
+      EventChannel('com.appdna.sdk/events/init');
+  static AppDNAInitDelegate? _initDelegate;
+  static StreamSubscription? _initSub;
 
   static void _ensureSyncCallbacks() {
     if (_syncCallbacksWired) return;
@@ -305,6 +315,140 @@ class AppDNA {
     final version = await _channel.invokeMethod<String>('getSdkVersion');
     return version ?? 'unknown';
   }
+
+  // MARK: - SPEC-070-C §3.1 lifecycle / core (full native parity)
+
+  /// Register background tasks (iOS `BGTaskScheduler` event-upload / Android
+  /// WorkManager). Call once at startup after `configure`. Real on both.
+  static Future<void> registerBackgroundTasks() async {
+    await _channel.invokeMethod('registerBackgroundTasks');
+  }
+
+  /// Whether analytics consent is currently granted.
+  static Future<bool> isConsentGranted() async {
+    final granted = await _channel.invokeMethod<bool>('isConsentGranted');
+    return granted ?? false;
+  }
+
+  /// Emit a comprehensive SDK health report. Returns the report string on
+  /// Android; on iOS the report is printed to the console and this returns
+  /// `null` (§3.1: iOS `diagnose()` is `Void`).
+  static Future<String?> diagnose() async {
+    return await _channel.invokeMethod<String>('diagnose');
+  }
+
+  /// Get the identified user's traits (empty map if none / not identified).
+  static Future<Map<String, dynamic>> getUserTraits() async {
+    final data = await _channel.invokeMethod<Map>('getUserTraits');
+    return data == null ? {} : Map<String, dynamic>.from(data);
+  }
+
+  /// Force a forced-theme override. Valid values: `'light'`, `'dark'`,
+  /// `'system'`, or `null` to follow the system. **Android-only** — a
+  /// documented no-op on iOS (§3.14).
+  static Future<void> setForcedTheme(String? theme) async {
+    await _channel.invokeMethod('setForcedTheme', {'theme': theme});
+  }
+
+  /// Read the current forced-theme override (`'light'`/`'dark'`/`'system'`),
+  /// or `null` when following the system. **Android-only** — always returns
+  /// `null` on iOS (§3.14).
+  static Future<String?> getForcedTheme() async {
+    return await _channel.invokeMethod<String>('getForcedTheme');
+  }
+
+  /// Register a delegate notified when `configure()` completes in a degraded
+  /// state (`onInitDegraded`). **Android-only** — on iOS the underlying stream
+  /// never emits (§3.14). Pass `null` to clear.
+  static void setInitDelegate(AppDNAInitDelegate? delegate) {
+    _initDelegate = delegate;
+    _initSub?.cancel();
+    _initSub = null;
+    if (delegate == null) return;
+    _initSub = _initChannel.receiveBroadcastStream().listen((raw) {
+      if (raw is! Map) return;
+      final type = raw['type'] as String?;
+      final args =
+          (raw['args'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      if (type == 'onInitDegraded') {
+        _initDelegate?.onInitDegraded(
+          (args['error'] as Map?)?.cast<String, dynamic>() ??
+              <String, dynamic>{},
+        );
+      }
+    });
+  }
+
+  /// The last init error captured during `configure()` as a `{message, type}`
+  /// map, or `null` if init succeeded. **Android-only** — returns `null` on
+  /// iOS (§3.14).
+  static Future<Map<String, dynamic>?> lastInitError() async {
+    final data = await _channel.invokeMethod<Map>('getLastInitError');
+    return data == null ? null : Map<String, dynamic>.from(data);
+  }
+
+  // MARK: - SPEC-070-C §3.2 events
+
+  /// Feed the current screen name so subsequent events carry `context.screen`
+  /// (zero-code screen attribution). **Android-only** — a no-op on iOS (§3.14).
+  static Future<void> notifyScreenAppeared(String screenName) async {
+    await _channel.invokeMethod('notifyScreenAppeared', {'screenName': screenName});
+  }
+
+  // MARK: - SPEC-070-C §3.3 config
+
+  /// Force an immediate remote-config refresh from the backend.
+  static Future<void> forceRefreshConfig() async {
+    await _channel.invokeMethod('forceRefreshConfig');
+  }
+
+  /// The applied config version for debugging. Pass a [flowId] to scope to a
+  /// specific onboarding flow. Returns `null` when no config is applied yet.
+  static Future<int?> debugAppliedConfigVersion({String? flowId}) async {
+    final v = await _channel.invokeMethod<int>(
+        'debugAppliedConfigVersion', {'flowId': flowId});
+    return v;
+  }
+
+  // MARK: - SPEC-070-C §3.7 paywall
+
+  /// Present a paywall by placement — the SDK auto-selects the best audience
+  /// match. Real on Android; on iOS this routes to the placement-based
+  /// `presentPaywall` overload (§3.14).
+  static Future<void> presentPaywallByPlacement(String placement,
+      {PaywallContext? context}) async {
+    await _channel.invokeMethod('presentPaywallByPlacement', {
+      'placement': placement,
+      'context': context?.toMap(),
+    });
+  }
+
+  /// Shorthand to present a paywall by ID over the current top screen.
+  static Future<void> showPaywall(String id) async {
+    await _channel.invokeMethod('showPaywall', {'id': id});
+  }
+
+  /// Suppress the next auto-dismiss that would otherwise fire after a restore
+  /// completes (so the host can present its own post-restore UX).
+  static Future<void> skipNextAutoDismissOnRestore(bool value) async {
+    await _channel
+        .invokeMethod('skipNextAutoDismissOnRestore', {'value': value});
+  }
+
+  // MARK: - SPEC-070-C §3.9 surveys
+
+  /// Shorthand to present a survey by ID.
+  static Future<void> showSurvey(String id) async {
+    await _channel.invokeMethod('showSurvey', {'id': id});
+  }
+}
+
+/// SPEC-070-C §3.1 — delegate notified when the SDK finishes `configure()` in
+/// a degraded state (e.g. Firebase unavailable). **Android-only**; on iOS the
+/// backing stream never emits. Register via [AppDNA.setInitDelegate].
+abstract class AppDNAInitDelegate {
+  /// Called with a `{message, type}` map describing the degraded-init reason.
+  void onInitDegraded(Map<String, dynamic> error);
 }
 
 // MARK: - Module Namespace Classes (v1.0)
@@ -740,6 +884,15 @@ class AppDNADeepLinksModule {
 
   Future<void> handleURL(String url) =>
       _channel.invokeMethod('handleDeepLink', {'url': url});
+
+  /// SPEC-070-C §3.13 — resolve a location the user picked for an onboarding
+  /// location field. Returns `null` when the field has no captured location.
+  Future<LocationData?> getLocationData(String fieldId) async {
+    final data = await _channel
+        .invokeMethod<Map>('getLocationData', {'fieldId': fieldId});
+    if (data == null) return null;
+    return LocationData.fromMap(data);
+  }
 
   /// Set a delegate to receive deep link callbacks.
   /// Pass `null` to clear the current delegate and stop listening.

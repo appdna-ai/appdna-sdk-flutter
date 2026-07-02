@@ -43,7 +43,25 @@
         { "method": "disableScreenNavigationInterception", "ios": true, "android": true },
         { "method": "previewScreen", "ios": true, "android": true },
         { "method": "shutdown", "ios": true, "android": true },
-        { "method": "getSdkVersion", "ios": true, "android": true }
+        { "method": "getSdkVersion", "ios": true, "android": true },
+        { "method": "registerBackgroundTasks", "ios": true, "android": true },
+        { "method": "isConsentGranted", "ios": true, "android": true },
+        { "method": "diagnose", "ios": true, "android": true },
+        { "method": "getUserTraits", "ios": true, "android": true },
+        { "method": "setForcedTheme", "ios": true, "android": true, "$note": "iOS §3.14 no-op" },
+        { "method": "getForcedTheme", "ios": true, "android": true, "$note": "iOS §3.14 no-op (returns null)" },
+        { "method": "getLastInitError", "ios": true, "android": true, "$note": "iOS §3.14 no-op (returns null)" },
+        { "method": "notifyScreenAppeared", "ios": true, "android": true, "$note": "iOS §3.14 no-op" },
+        { "method": "forceRefreshConfig", "ios": true, "android": true },
+        { "method": "debugAppliedConfigVersion", "ios": true, "android": true },
+        { "method": "presentPaywallByPlacement", "ios": true, "android": true, "$note": "iOS routes to presentPaywall(placement:)" },
+        { "method": "showPaywall", "ios": true, "android": true },
+        { "method": "skipNextAutoDismissOnRestore", "ios": true, "android": true },
+        { "method": "showSurvey", "ios": true, "android": true },
+        { "method": "registerForPush", "ios": true, "android": true, "$note": "Android routes to push.requestPermission" },
+        { "method": "handlePushTap", "ios": true, "android": true, "$note": "iOS §3.14 no-op (returns false)" },
+        { "method": "onNewPushToken", "ios": true, "android": true, "$note": "iOS §3.14 no-op" },
+        { "method": "getLocationData", "ios": true, "android": true }
       ]
     },
     "com.appdna.sdk/billing": {
@@ -53,7 +71,8 @@
         { "method": "restorePurchases", "ios": true, "android": true },
         { "method": "getProducts", "ios": true, "android": true },
         { "method": "hasActiveSubscription", "ios": true, "android": true },
-        { "method": "getEntitlements", "ios": true, "android": true }
+        { "method": "getEntitlements", "ios": true, "android": true },
+        { "method": "refreshEntitlementCache", "ios": true, "android": true }
       ]
     },
     "com.appdna.sdk/sync_callbacks": {

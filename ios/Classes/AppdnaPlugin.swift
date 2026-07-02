@@ -137,6 +137,15 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             AppDNAScreenSlotFactory(),
             withId: "com.appdna.sdk/screen_slot"
         )
+
+        // SPEC-070-C §3.1/§3.14 — the Android-only init-degradation delegate
+        // stream. iOS has no `setInitDelegate`; register the channel so the
+        // Dart `setInitDelegate` stream subscribe succeeds, but it never emits
+        // (documented no-op).
+        let initChannel = FlutterEventChannel(
+            name: "com.appdna.sdk/events/init", binaryMessenger: messenger
+        )
+        initChannel.setStreamHandler(NoopStreamHandler())
     }
 
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -352,9 +361,107 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             }
             result(nil)
 
+        // MARK: - SPEC-070-C §3.1 lifecycle / core
+        case "registerBackgroundTasks":
+            AppDNA.registerBackgroundTasks()
+            result(nil)
+
+        case "isConsentGranted":
+            result(AppDNA.isConsentGranted())
+
+        // Android returns a report String; iOS `diagnose()` is Void (prints to
+        // console) → return nil so the Dart facade yields `String?` = null.
+        case "diagnose":
+            AppDNA.diagnose()
+            result(nil)
+
+        case "getUserTraits":
+            result(AppDNA.getUserTraits())
+
+        // §3.14 iOS no-ops (Android-only forced-theme / init delegate).
+        case "setForcedTheme", "getForcedTheme", "getLastInitError":
+            result(nil)
+
+        // §3.14 iOS no-op (Android-only zero-code screen attribution).
+        case "notifyScreenAppeared":
+            result(nil)
+
+        // MARK: - SPEC-070-C §3.3 config
+        case "forceRefreshConfig":
+            AppDNA.forceRefreshConfig()
+            result(nil)
+
+        case "debugAppliedConfigVersion":
+            result(AppDNA.debugAppliedConfigVersion(flowId: args["flowId"] as? String))
+
+        // MARK: - SPEC-070-C §3.7 paywall
+        // §3.14: iOS has no `presentPaywallByPlacement` — route to the native
+        // placement-based `presentPaywall(placement:from:context:)` overload.
+        case "presentPaywallByPlacement":
+            let placement = args["placement"] as! String
+            let ctx = parsePaywallContext(args["context"] as? [String: Any])
+            if let vc = UIApplication.shared.topViewController {
+                AppDNA.presentPaywall(placement: placement, from: vc, context: ctx)
+            }
+            result(nil)
+
+        case "showPaywall":
+            AppDNA.showPaywall(args["id"] as! String)
+            result(nil)
+
+        case "skipNextAutoDismissOnRestore":
+            AppDNA.paywall.skipNextAutoDismissOnRestore = args["value"] as? Bool ?? false
+            result(nil)
+
+        // MARK: - SPEC-070-C §3.9 surveys
+        case "showSurvey":
+            AppDNA.showSurvey(args["id"] as! String)
+            result(nil)
+
+        // MARK: - SPEC-070-C §3.11 push
+        case "registerForPush":
+            Task {
+                let granted = await AppDNA.registerForPush()
+                DispatchQueue.main.async { result(granted) }
+            }
+
+        // §3.14 iOS no-ops (Android-only intent-tap / FCM new-token feed).
+        case "handlePushTap":
+            result(false)
+        case "onNewPushToken":
+            result(nil)
+
+        // MARK: - SPEC-070-C §3.13 location
+        case "getLocationData":
+            let fieldId = args["fieldId"] as! String
+            if let loc = AppDNA.getLocationData(fieldId: fieldId) {
+                result(Self.locationDataToMap(loc))
+            } else {
+                result(nil)
+            }
+
         default:
             result(FlutterMethodNotImplemented)
         }
+    }
+
+    // MARK: - SPEC-070-C §3.13 — LocationData -> channel map (snake_case keys
+    // matching the Dart `LocationData.fromMap` contract).
+    private static func locationDataToMap(_ l: LocationData) -> [String: Any?] {
+        return [
+            "formatted_address": l.formatted_address,
+            "city": l.city,
+            "state": l.state,
+            "state_code": l.state_code,
+            "country": l.country,
+            "country_code": l.country_code,
+            "latitude": l.latitude,
+            "longitude": l.longitude,
+            "timezone": l.timezone,
+            "timezone_offset": l.timezone_offset,
+            "postal_code": l.postal_code,
+            "raw_query": l.raw_query
+        ]
     }
 
     // MARK: - Helpers
@@ -530,6 +637,13 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
                 }
             }
 
+        // SPEC-070-C §3.8 — force-refresh the native entitlement cache.
+        case "refreshEntitlementCache":
+            Task {
+                await AppDNA.billing.refreshEntitlementCache()
+                DispatchQueue.main.async { result(nil) }
+            }
+
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -547,6 +661,17 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
 
     public func onCancel(withArguments arguments: Any?) -> FlutterError? {
         eventSink = nil
+        return nil
+    }
+}
+
+// MARK: - No-op stream handler (§3.14 iOS-side stubs, e.g. init-degradation)
+
+private class NoopStreamHandler: NSObject, FlutterStreamHandler {
+    func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+        return nil
+    }
+    func onCancel(withArguments arguments: Any?) -> FlutterError? {
         return nil
     }
 }

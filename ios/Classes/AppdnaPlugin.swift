@@ -262,12 +262,125 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         case "getSdkVersion":
             result(AppDNA.sdkVersion)
 
+        // MARK: - SPEC-070-C Phase 3 — remaining facade method wiring
+        // Each case delegates to the current native AppDNASDK 1.0.67 facade.
+        // Thin marshalling only (arg unpack -> native call -> map reply).
+
+        case "setLogLevel":
+            AppDNA.setLogLevel(parseLogLevel(args["level"] as? String))
+            result(nil)
+
+        // Push module.
+        case "requestPushPermission":
+            Task {
+                let granted = await AppDNA.pushModule.requestPermission()
+                DispatchQueue.main.async { result(granted) }
+            }
+
+        case "getPushToken":
+            result(AppDNA.pushModule.getToken())
+
+        // Remote config module.
+        case "refreshConfig":
+            AppDNA.remoteConfig.refresh()
+            result(nil)
+
+        case "getAllRemoteConfig":
+            result(AppDNA.remoteConfig.getAll())
+
+        // Features module.
+        case "getFeatureVariant":
+            let flag = args["flag"] as! String
+            result(AppDNA.features.getVariant(flag))
+
+        // Experiments module. Native returns [(experimentId, variant)] tuples;
+        // map to the `[{experimentId, variant}]` shape the Dart parser expects.
+        case "getExperimentExposures":
+            let exposures = AppDNA.experiments.getExposures()
+            result(exposures.map { ["experimentId": $0.experimentId, "variant": $0.variant] })
+
+        // In-app messages module.
+        case "suppressMessages":
+            AppDNA.inAppMessages.suppressDisplay(args["suppress"] as? Bool ?? false)
+            result(nil)
+
+        // Surveys module.
+        case "presentSurvey":
+            let surveyId = args["surveyId"] as! String
+            AppDNA.surveys.present(surveyId)
+            result(nil)
+
+        // Deep links module. Dart passes a raw URL string.
+        case "handleDeepLink":
+            if let urlStr = args["url"] as? String, let url = URL(string: urlStr) {
+                AppDNA.deepLinks.handleURL(url)
+            }
+            result(nil)
+
+        // Screen (server-driven UI) module. Presentation is fire-and-forget:
+        // lifecycle callbacks arrive on the `events/screen` channel via the
+        // ScreenDelegateForwarder, so the completion handler is left nil and the
+        // method resolves immediately. `context` has no native counterpart on
+        // showScreen/showFlow and is intentionally dropped (documented no-op).
+        case "showScreen":
+            let screenId = args["screenId"] as! String
+            AppDNA.showScreen(screenId)
+            result(nil)
+
+        case "showScreenFlow":
+            let flowId = args["flowId"] as! String
+            AppDNA.showFlow(flowId)
+            result(nil)
+
+        case "dismissScreen":
+            AppDNA.dismissScreen()
+            result(nil)
+
+        case "enableScreenNavigationInterception":
+            AppDNA.enableNavigationInterception()
+            result(nil)
+
+        case "disableScreenNavigationInterception":
+            AppDNA.disableNavigationInterception()
+            result(nil)
+
+        // Dart sends the screen definition as a Map; native previewScreen takes
+        // a JSON string, so serialize before forwarding.
+        case "previewScreen":
+            if let jsonStr = jsonString(from: args["json"]) {
+                AppDNA.previewScreen(json: jsonStr)
+            }
+            result(nil)
+
         default:
             result(FlutterMethodNotImplemented)
         }
     }
 
     // MARK: - Helpers
+
+    /// Map a Dart log-level string to the native `LogLevel` (default `.warning`).
+    private func parseLogLevel(_ level: String?) -> LogLevel {
+        switch level {
+        case "none": return .none
+        case "error": return .error
+        case "warning": return .warning
+        case "info": return .info
+        case "debug": return .debug
+        default: return .warning
+        }
+    }
+
+    /// Serialize a bridged `json` argument (String passthrough, or Map/Array ->
+    /// JSON string) for `previewScreen(json:)`. Returns nil if not serializable.
+    private func jsonString(from value: Any?) -> String? {
+        if let s = value as? String { return s }
+        guard let obj = value,
+              JSONSerialization.isValidJSONObject(obj),
+              let data = try? JSONSerialization.data(withJSONObject: obj),
+              let str = String(data: data, encoding: .utf8) else { return nil }
+        return str
+    }
 
     private func hexStringToData(_ hex: String) -> Data? {
         let len = hex.count
@@ -313,7 +426,9 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             batchSize: dict["batchSize"] as? Int ?? 20,
             configTTL: dict["configTTL"] as? TimeInterval ?? 300,
             logLevel: logLevel,
-            billingProvider: billingProvider
+            billingProvider: billingProvider,
+            // SPEC-070-C D4: wrapper attribution (Dart defaults it to "flutter").
+            framework: dict["framework"] as? String ?? "native"
         )
     }
 
@@ -400,6 +515,18 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
                 let hasActive = await AppDNA.billing.hasActiveSubscription()
                 DispatchQueue.main.async {
                     result(hasActive)
+                }
+            }
+
+        case "getEntitlements":
+            // Native signature: getEntitlements() async -> [Entitlement].
+            // Map via BillingMappers.toFlutterMap() so the keys match the Dart
+            // `Entitlement.fromMap` contract (productId/store/status/…).
+            Task {
+                let entitlements = await AppDNA.billing.getEntitlements()
+                let maps = entitlements.map { $0.toFlutterMap() }
+                DispatchQueue.main.async {
+                    result(maps)
                 }
             }
 

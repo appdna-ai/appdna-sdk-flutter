@@ -442,6 +442,123 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
             "getSdkVersion" -> {
                 result.success(AppDNA.sdkVersion)
             }
+
+            // MARK: SPEC-070-C Phase 3 — remaining facade method wiring.
+            // Each case delegates to the current native sdk-android 1.0.39
+            // facade. Thin marshalling only (arg unpack -> native call -> reply).
+
+            "setLogLevel" -> {
+                // Native AppDNA.setLogLevel(String) resolves the level itself.
+                AppDNA.setLogLevel(call.argument<String>("level") ?: "warning")
+                result.success(null)
+            }
+
+            // Push module. requestPermission needs a foreground Activity to show
+            // the OS dialog; with none we report not-granted (documented no-op)
+            // rather than throwing (§3.14).
+            "requestPushPermission" -> {
+                val act = activity
+                if (act == null) {
+                    result.success(false)
+                    return
+                }
+                scope.launch {
+                    try {
+                        result.success(AppDNA.push.requestPermission(act))
+                    } catch (e: Exception) {
+                        result.success(false)
+                    }
+                }
+            }
+            "getPushToken" -> {
+                result.success(AppDNA.push.getToken())
+            }
+
+            // Remote config module.
+            "refreshConfig" -> {
+                AppDNA.remoteConfig.refresh()
+                result.success(null)
+            }
+            "getAllRemoteConfig" -> {
+                result.success(AppDNA.remoteConfig.getAll())
+            }
+
+            // Features module.
+            "getFeatureVariant" -> {
+                val flag = call.argument<String>("flag")!!
+                result.success(AppDNA.features.getVariant(flag))
+            }
+
+            // Experiments module. Map ExposureEntry -> {experimentId, variant}
+            // so the shape matches iOS + the Dart parser.
+            "getExperimentExposures" -> {
+                val exposures = AppDNA.experiments.getExposures()
+                result.success(
+                    exposures.map {
+                        mapOf("experimentId" to it.experimentId, "variant" to it.variant)
+                    },
+                )
+            }
+
+            // In-app messages module.
+            "suppressMessages" -> {
+                AppDNA.inAppMessages.suppressDisplay(call.argument<Boolean>("suppress") ?: false)
+                result.success(null)
+            }
+
+            // Surveys module.
+            "presentSurvey" -> {
+                val surveyId = call.argument<String>("surveyId")!!
+                AppDNA.surveys.present(surveyId)
+                result.success(null)
+            }
+
+            // Deep links module. Dart passes a raw URL string.
+            "handleDeepLink" -> {
+                val url = call.argument<String>("url")!!
+                AppDNA.deepLinks.handleURL(url)
+                result.success(null)
+            }
+
+            // Screen (server-driven UI) module. Presentation is fire-and-forget:
+            // lifecycle callbacks arrive on events/screen via the forwarder, so
+            // no completion is passed and the method resolves immediately.
+            // `context` has no native counterpart on showScreen/showFlow and is
+            // intentionally dropped (documented no-op).
+            "showScreen" -> {
+                val screenId = call.argument<String>("screenId")!!
+                AppDNA.showScreen(screenId)
+                result.success(null)
+            }
+            "showScreenFlow" -> {
+                val flowId = call.argument<String>("flowId")!!
+                AppDNA.showFlow(flowId)
+                result.success(null)
+            }
+            "dismissScreen" -> {
+                AppDNA.dismissScreen()
+                result.success(null)
+            }
+            "enableScreenNavigationInterception" -> {
+                AppDNA.enableNavigationInterception()
+                result.success(null)
+            }
+            "disableScreenNavigationInterception" -> {
+                AppDNA.disableNavigationInterception()
+                result.success(null)
+            }
+            // Dart sends the screen definition as a Map; native previewScreen
+            // takes a JSON string, so serialize before forwarding.
+            "previewScreen" -> {
+                val jsonStr = when (val json = call.argument<Any>("json")) {
+                    is String -> json
+                    is Map<*, *> -> org.json.JSONObject(json).toString()
+                    else -> null
+                }
+                if (jsonStr != null) AppDNA.previewScreen(jsonStr)
+                result.success(null)
+            }
+
             else -> result.notImplemented()
         }
     }
@@ -529,6 +646,19 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                     }
                 }
             }
+            "getEntitlements" -> {
+                // Native getEntitlements() (suspend) -> List<Entitlement>.
+                // Map via BillingMappers.toMap() so keys match the Dart
+                // Entitlement.fromMap contract (productId/store/status/…).
+                scope.launch {
+                    try {
+                        val entitlements = AppDNA.billing.getEntitlements()
+                        result.success(entitlements.map { it.toMap() })
+                    } catch (e: Exception) {
+                        result.error("ENTITLEMENTS_ERROR", e.message, null)
+                    }
+                }
+            }
             else -> result.notImplemented()
         }
     }
@@ -547,7 +677,9 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
             flushInterval = (map["flushInterval"] as? Number)?.toLong() ?: 30L,
             batchSize = (map["batchSize"] as? Number)?.toInt() ?: 20,
             configTTL = (map["configTTL"] as? Number)?.toLong() ?: 300L,
-            logLevel = logLevel
+            logLevel = logLevel,
+            // SPEC-070-C D4: wrapper attribution (Dart defaults it to "flutter").
+            framework = map["framework"] as? String ?: "native"
         )
     }
 

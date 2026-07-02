@@ -1,0 +1,73 @@
+{
+  "$comment": "SPEC-070-C §6 — authoritative MethodChannel handler manifest. The union of every MethodChannel case handled by BOTH native plugins (iOS ios/Classes/AppdnaPlugin.swift, Android android/src/main/kotlin/com/appdna/flutter/AppdnaPlugin.kt). Every name here is invoked from the Dart facade (lib/appdna_sdk.dart, lib/billing.dart, lib/push.dart) and MUST resolve on both platforms — no FlutterMethodNotImplemented. This file drives the device parity pass. Regenerate when adding a handler.",
+  "spec": "SPEC-070-C",
+  "phase": 3,
+  "channels": {
+    "com.appdna.sdk/main": {
+      "direction": "dart->native",
+      "handlers": [
+        { "method": "configure", "ios": true, "android": true },
+        { "method": "setLogLevel", "ios": true, "android": true },
+        { "method": "identify", "ios": true, "android": true },
+        { "method": "reset", "ios": true, "android": true },
+        { "method": "track", "ios": true, "android": true },
+        { "method": "flush", "ios": true, "android": true },
+        { "method": "presentPaywall", "ios": true, "android": true },
+        { "method": "presentOnboarding", "ios": true, "android": true },
+        { "method": "getRemoteConfig", "ios": true, "android": true },
+        { "method": "refreshConfig", "ios": true, "android": true },
+        { "method": "getAllRemoteConfig", "ios": true, "android": true },
+        { "method": "isFeatureEnabled", "ios": true, "android": true },
+        { "method": "getFeatureVariant", "ios": true, "android": true },
+        { "method": "getExperimentVariant", "ios": true, "android": true },
+        { "method": "isInVariant", "ios": true, "android": true },
+        { "method": "getExperimentConfig", "ios": true, "android": true },
+        { "method": "getExperimentExposures", "ios": true, "android": true },
+        { "method": "setPushToken", "ios": true, "android": true },
+        { "method": "setPushPermission", "ios": true, "android": true },
+        { "method": "requestPushPermission", "ios": true, "android": true },
+        { "method": "getPushToken", "ios": true, "android": true },
+        { "method": "trackPushDelivered", "ios": true, "android": true },
+        { "method": "trackPushTapped", "ios": true, "android": true },
+        { "method": "setConsent", "ios": true, "android": true },
+        { "method": "onReady", "ios": true, "android": true },
+        { "method": "getWebEntitlement", "ios": true, "android": true },
+        { "method": "checkDeferredDeepLink", "ios": true, "android": true },
+        { "method": "handleDeepLink", "ios": true, "android": true },
+        { "method": "suppressMessages", "ios": true, "android": true },
+        { "method": "presentSurvey", "ios": true, "android": true },
+        { "method": "showScreen", "ios": true, "android": true },
+        { "method": "showScreenFlow", "ios": true, "android": true },
+        { "method": "dismissScreen", "ios": true, "android": true },
+        { "method": "enableScreenNavigationInterception", "ios": true, "android": true },
+        { "method": "disableScreenNavigationInterception", "ios": true, "android": true },
+        { "method": "previewScreen", "ios": true, "android": true },
+        { "method": "shutdown", "ios": true, "android": true },
+        { "method": "getSdkVersion", "ios": true, "android": true }
+      ]
+    },
+    "com.appdna.sdk/billing": {
+      "direction": "dart->native",
+      "handlers": [
+        { "method": "purchase", "ios": true, "android": true },
+        { "method": "restorePurchases", "ios": true, "android": true },
+        { "method": "getProducts", "ios": true, "android": true },
+        { "method": "hasActiveSubscription", "ios": true, "android": true },
+        { "method": "getEntitlements", "ios": true, "android": true }
+      ]
+    },
+    "com.appdna.sdk/sync_callbacks": {
+      "$comment": "native->Dart invokeMethod (host veto + async onboarding return-value hooks). Handled on the Dart side by AppDNA._handleSyncCallback; listed here for completeness of the wire surface but NOT part of the dart->native handler set the device pass drives.",
+      "direction": "native->dart",
+      "handlers": [
+        { "method": "onBeforeStepAdvance", "ios": true, "android": true },
+        { "method": "onBeforeStepRender", "ios": true, "android": true },
+        { "method": "onElementInteraction", "ios": true, "android": true },
+        { "method": "onPermissionRequest", "ios": true, "android": true },
+        { "method": "shouldShowMessage", "ios": true, "android": true },
+        { "method": "onScreenAction", "ios": true, "android": true },
+        { "method": "shouldOpen", "ios": true, "android": true }
+      ]
+    }
+  }
+}

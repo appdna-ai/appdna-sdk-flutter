@@ -35,7 +35,7 @@ dependencies:
   appdna_sdk:
     git:
       url: https://github.com/appdna-ai/appdna-sdk-flutter.git
-      ref: v1.0.2
+      ref: v1.0.6
 ```
 
 Then run:
@@ -82,6 +82,45 @@ switch (result) {
   case PaywallResult.failed:
     print('Failed');
 }
+```
+
+## Native host setup
+
+The SDK renders on the native layer, so a few host-side assets/declarations are required.
+Full copy-paste instructions are in the docs; the essentials:
+
+### Firebase config asset (required for online config + push)
+
+AppDNA loads paywalls, onboarding, experiments, flags, and push over a dedicated Firebase
+app. Place the config file(s) AppDNA gives you (**Settings → SDK → Download Config**) as
+native assets — nothing config-driven loads without them:
+
+- **iOS** — `GoogleService-Info-AppDNA.plist` in `ios/Runner/`.
+- **Android** — `google-services-appdna.json` in `android/app/src/main/assets/`.
+
+A cross-platform app downloads both in one ZIP.
+
+### Offline-first config bundle (optional)
+
+To ship a config snapshot that loads instantly offline, place `appdna-config.json` as a
+native asset (`ios/Runner/` and/or `android/app/src/main/assets/`). Native `configure()`
+auto-loads it as the offline fallback; online config takes over once fetched.
+
+### Host permissions (only for flows that use them)
+
+Onboarding flows that request a permission need the matching OS declaration in the host app
+— e.g. `NSCameraUsageDescription` / `NSCalendarsFullAccessUsageDescription` in
+`ios/Runner/Info.plist`, or `<uses-permission android:name="android.permission.CAMERA"/>` in
+`AndroidManifest.xml`. A missing declaration doesn't crash — the permission is simply
+unavailable, so the flow step can't advance. See the docs for the full per-permission table.
+
+## Embedded screen slots
+
+Most surfaces (onboarding, paywalls, surveys, messages) present natively over your app. For
+an **inline** server-driven screen region, embed the platform-view widget:
+
+```dart
+AppDNAScreenSlot(name: 'home_hero', height: 220)
 ```
 
 ## Documentation

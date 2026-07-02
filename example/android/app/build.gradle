@@ -8,7 +8,8 @@ plugins {
 android {
     namespace = "ai.appdna.appdna_sdk_example"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    // ndkVersion removed (SPEC-070-C): pure-Dart example has no native C/C++, so no NDK
+    // is needed; setting it forced an auto-install of an absent NDK on the build host.
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8

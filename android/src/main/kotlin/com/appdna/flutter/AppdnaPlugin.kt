@@ -11,10 +11,12 @@ import ai.appdna.sdk.AppDNADeepLinkDelegate
 import ai.appdna.sdk.AppDNASurveyDelegate
 import ai.appdna.sdk.Environment
 import ai.appdna.sdk.LogLevel
+import ai.appdna.sdk.PurchaseCancelledException
 import ai.appdna.sdk.PushPayload
 import ai.appdna.sdk.SurveyResponse
 import ai.appdna.sdk.TransactionInfo
 import ai.appdna.sdk.billing.Entitlement
+import ai.appdna.sdk.billing.PurchaseOptions
 import ai.appdna.sdk.onboarding.AppDNAOnboardingDelegate
 import ai.appdna.sdk.paywalls.AppDNAPaywallDelegate
 import ai.appdna.sdk.paywalls.PaywallAction
@@ -402,19 +404,57 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
             "purchase" -> {
                 val productId = call.argument<String>("productId")!!
                 val offerToken = call.argument<String>("offerToken")
+                // sdk-android 1.0.39: purchase(activity, productId, options) now
+                // requires an Activity (Play Billing launchBillingFlow) and returns
+                // a TransactionInfo on success, throwing on cancel/pending/failure.
+                val act = activity
+                if (act == null) {
+                    result.error(
+                        "NO_ACTIVITY",
+                        "No foreground Activity available to launch the purchase flow",
+                        null,
+                    )
+                    return
+                }
                 scope.launch {
                     try {
-                        val purchaseResult = AppDNA.billing.purchase(productId, offerToken)
-                        result.success(purchaseResult.toMap())
+                        val txn = AppDNA.billing.purchase(
+                            act,
+                            productId,
+                            PurchaseOptions(offerToken = offerToken),
+                        )
+                        // Map TransactionInfo -> Dart PurchaseResult shape
+                        // (lib/billing.dart PurchaseResult.fromMap / Entitlement.fromMap).
+                        result.success(
+                            mapOf(
+                                "status" to "purchased",
+                                "entitlement" to mapOf(
+                                    "productId" to txn.productId,
+                                    "store" to "play",
+                                    "status" to "active",
+                                    "expiresAt" to txn.purchaseDate,
+                                    "isTrial" to false,
+                                    "offerType" to null,
+                                ),
+                            ),
+                        )
+                    } catch (e: PurchaseCancelledException) {
+                        result.success(mapOf("status" to "cancelled"))
                     } catch (e: Exception) {
+                        // Covers PurchasePending/PurchaseFailed + any billing error.
                         result.error("PURCHASE_ERROR", e.message, null)
                     }
                 }
             }
             "restorePurchases" -> {
+                // sdk-android 1.0.39: restorePurchases() now returns List<String>
+                // (restored product ids). The Dart channel contract still expects
+                // List<Entitlement> maps, so trigger the restore then read the
+                // refreshed entitlements from the cache.
                 scope.launch {
                     try {
-                        val entitlements = AppDNA.billing.restorePurchases()
+                        AppDNA.billing.restorePurchases()
+                        val entitlements = AppDNA.billing.getEntitlements()
                         result.success(entitlements.map { it.toMap() })
                     } catch (e: Exception) {
                         result.error("RESTORE_ERROR", e.message, null)

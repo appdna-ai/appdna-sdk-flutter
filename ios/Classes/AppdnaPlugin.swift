@@ -5,7 +5,9 @@ import AppDNASDK
 public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     private var eventSink: FlutterEventSink?
     private var billingChannel: FlutterMethodChannel?
-    private var entitlementEventSink: FlutterEventSink?
+    // fileprivate so BillingEntitlementStreamHandler (same file) can route the
+    // entitlement stream through it. Not public — stays internal to this file.
+    fileprivate var entitlementEventSink: FlutterEventSink?
 
     // MARK: - Delegate forwarders (strong references so they are NOT
     // deallocated — the iOS SDK holds delegates with `weak` semantics on
@@ -305,16 +307,27 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         switch call.method {
         case "purchase":
             let productId = args["productId"] as! String
-            let offerToken = args["offerToken"] as? String
+            // `offerToken` is an Android (Play Billing base-plan/offer) concept.
+            // iOS StoreKit has no equivalent, so it is accepted from the channel
+            // for API symmetry but not forwarded to the native call.
             Task {
                 do {
-                    let billingResult = try await AppDNA.billing.purchase(productId: productId, offerToken: offerToken)
+                    // Native signature (AppDNASDK 1.0.67):
+                    //   purchase(_ productId: String, options: PurchaseOptions?) -> TransactionInfo
+                    // Throws on user-cancel / pending. Mirror the Android
+                    // semantics: success -> {status:"purchased", entitlement},
+                    // cancel -> {status:"cancelled"}.
+                    let transaction = try await AppDNA.billing.purchase(productId)
                     DispatchQueue.main.async {
-                        result(billingResult.toFlutterMap())
+                        result(transaction.toPurchaseResultMap())
                     }
                 } catch {
                     DispatchQueue.main.async {
-                        result(FlutterError(code: "PURCHASE_ERROR", message: error.localizedDescription, details: nil))
+                        if BillingMappers.isUserCancellation(error) {
+                            result(["status": "cancelled"])
+                        } else {
+                            result(FlutterError(code: "PURCHASE_ERROR", message: error.localizedDescription, details: nil))
+                        }
                     }
                 }
             }
@@ -322,7 +335,11 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         case "restorePurchases":
             Task {
                 do {
-                    let entitlements = try await AppDNA.billing.restorePurchases()
+                    // Native `restorePurchases()` now returns restored product IDs
+                    // ([String]). To preserve the Dart `List<Entitlement>` contract
+                    // we trigger the restore, then return the current entitlements.
+                    _ = try await AppDNA.billing.restorePurchases()
+                    let entitlements = await AppDNA.billing.getEntitlements()
                     let maps = entitlements.map { $0.toFlutterMap() }
                     DispatchQueue.main.async {
                         result(maps)
@@ -338,7 +355,8 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             let productIds = args["productIds"] as? [String] ?? []
             Task {
                 do {
-                    let products = try await AppDNA.billing.getProducts(productIds: productIds)
+                    // Native signature: getProducts(_ ids: [String]) -> [ProductInfo]
+                    let products = try await AppDNA.billing.getProducts(productIds)
                     let maps = products.map { $0.toFlutterMap() }
                     DispatchQueue.main.async {
                         result(maps)

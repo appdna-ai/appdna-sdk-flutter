@@ -40,11 +40,67 @@ class AppDNA {
       EventChannel('com.appdna.sdk/web_entitlement');
 
   /// Initialize the SDK. Call once at app startup.
+  /// SPEC-070-C §5 — bidirectional sync-callback channel. Native invokes Dart on
+  /// this channel for async return-value hooks + host-veto decisions and awaits the
+  /// reply (the MethodChannel reply IS the correlation; native applies a
+  /// timeout-default so a slow/absent host never deadlocks).
+  static const MethodChannel _syncChannel =
+      MethodChannel('com.appdna.sdk/sync_callbacks');
+  static bool _syncCallbacksWired = false;
+
+  static void _ensureSyncCallbacks() {
+    if (_syncCallbacksWired) return;
+    _syncCallbacksWired = true;
+    _syncChannel.setMethodCallHandler(_handleSyncCallback);
+  }
+
+  /// Dispatches a native sync-callback to the registered host delegate and returns
+  /// its result (Future for the async onboarding hooks; bool for the vetos). Returns
+  /// the SDK's default when no delegate is registered so native proceeds normally.
+  static Future<dynamic> _handleSyncCallback(MethodCall call) async {
+    final args =
+        (call.arguments as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    String s(String k) => args[k] as String? ?? '';
+    int i(String k) => (args[k] as num?)?.toInt() ?? 0;
+    Map<String, dynamic> m(String k) =>
+        (args[k] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+
+    switch (call.method) {
+      // ── Onboarding async return-value hooks (Phase 2a) ───────────────────
+      case 'onBeforeStepAdvance':
+        return await onboarding._delegate?.onBeforeStepAdvance(
+          s('flowId'), s('fromStepId'), i('stepIndex'), s('stepType'),
+          m('responses'), (args['stepData'] as Map?)?.cast<String, dynamic>(),
+        );
+      case 'onBeforeStepRender':
+        return await onboarding._delegate?.onBeforeStepRender(
+          s('flowId'), s('stepId'), i('stepIndex'), s('stepType'), m('responses'),
+        );
+      case 'onElementInteraction':
+        return await onboarding._delegate?.onElementInteraction(
+          s('flowId'), s('stepId'), s('blockId'), s('action'),
+          args['value'] as String?, m('inputValues'),
+        );
+      case 'onPermissionRequest':
+        return await onboarding._delegate?.onPermissionRequest(s('permissionType'));
+      // ── Host-veto decisions (D10; native seams land in Phase 2b) ─────────
+      case 'shouldShowMessage':
+        return inAppMessages._delegate?.shouldShowMessage(s('messageId')) ?? true;
+      case 'onScreenAction':
+        return screen._delegate?.onScreenAction(s('screenId'), m('action')) ?? true;
+      case 'shouldOpen':
+        return deepLinks._delegate?.shouldOpen(s('url'), m('params')) ?? true;
+      default:
+        return null;
+    }
+  }
+
   static Future<void> configure({
     required String apiKey,
     AppDNAEnvironment env = AppDNAEnvironment.production,
     AppDNAOptions? options,
   }) async {
+    _ensureSyncCallbacks();
     await _channel.invokeMethod('configure', {
       'apiKey': apiKey,
       'env': env.name,

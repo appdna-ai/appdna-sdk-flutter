@@ -26,7 +26,9 @@ plugins {
 // published ai.appdna:sdk-android artifact when APPDNA_ANDROID_SDK_PATH is set, so
 // unreleased native (D10 veto seams) is compile-verified before publish. Unset in
 // CI/publish → the mavenCentral artifact from the plugin's dependency is used.
-def localAndroidSdk = System.getenv("APPDNA_ANDROID_SDK_PATH")
+// Use Gradle's provider API (not System.getenv) so a reused Gradle daemon reads the
+// CURRENT build's env rather than the daemon's cached process env.
+def localAndroidSdk = providers.environmentVariable("APPDNA_ANDROID_SDK_PATH").getOrNull()
 if (localAndroidSdk?.trim()) {
     includeBuild(localAndroidSdk) {
         dependencySubstitution {

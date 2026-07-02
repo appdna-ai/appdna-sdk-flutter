@@ -95,6 +95,7 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             name: "com.appdna.sdk/events/in_app_message", binaryMessenger: messenger
         )
         let inAppMessageForwarder = InAppMessageDelegateForwarder()
+        inAppMessageForwarder.invoker = syncInvoker
         instance.inAppMessageForwarder = inAppMessageForwarder
         inAppMessageChannel.setStreamHandler(inAppMessageForwarder)
 
@@ -116,6 +117,7 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             name: "com.appdna.sdk/events/deep_link", binaryMessenger: messenger
         )
         let deepLinkForwarder = DeepLinkDelegateForwarder()
+        deepLinkForwarder.invoker = syncInvoker
         instance.deepLinkForwarder = deepLinkForwarder
         deepLinkChannel.setStreamHandler(deepLinkForwarder)
 
@@ -123,6 +125,7 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             name: "com.appdna.sdk/events/screen", binaryMessenger: messenger
         )
         let screenForwarder = ScreenDelegateForwarder()
+        screenForwarder.invoker = syncInvoker
         instance.screenForwarder = screenForwarder
         screenChannel.setStreamHandler(screenForwarder)
     }
@@ -833,15 +836,27 @@ private class SurveyDelegateForwarder: NSObject, AppDNASurveyDelegate, FlutterSt
 
 private class InAppMessageDelegateForwarder: NSObject, AppDNAInAppMessageDelegate, FlutterStreamHandler {
     private var sink: FlutterEventSink?
+    /// SPEC-070-C D10 — native -> Dart invoker for the async `shouldShowMessage`
+    /// wrapper-veto. Injected in `register(...)`.
+    weak var invoker: SyncCallbackInvoker?
 
     func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
         self.sink = events
         AppDNA.inAppMessages.setDelegate(self)
+        // SPEC-070-C D10 — register the async wrapper-veto. The native SDK
+        // awaits this in ADDITION to the sync `shouldShowMessage` below. The
+        // invoker applies the timeout-default + logs; nil/timeout → allow.
+        AppDNA.inAppMessages.asyncShouldShowMessage = { [weak self] messageId in
+            guard let invoker = self?.invoker else { return true }
+            let reply = await invoker.invokeDart("shouldShowMessage", ["messageId": messageId])
+            return (reply as? Bool) ?? true
+        }
         return nil
     }
 
     func onCancel(withArguments arguments: Any?) -> FlutterError? {
         AppDNA.inAppMessages.setDelegate(nil)
+        AppDNA.inAppMessages.asyncShouldShowMessage = nil
         self.sink = nil
         return nil
     }
@@ -988,15 +1003,30 @@ private class BillingDelegateForwarder: NSObject, AppDNABillingDelegate, Flutter
 
 private class DeepLinkDelegateForwarder: NSObject, AppDNADeepLinkDelegate, FlutterStreamHandler {
     private var sink: FlutterEventSink?
+    /// SPEC-070-C D10 — native -> Dart invoker for the async `shouldOpen`
+    /// wrapper-veto. Injected in `register(...)`.
+    weak var invoker: SyncCallbackInvoker?
 
     func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
         self.sink = events
         AppDNA.deepLinks.setDelegate(self)
+        // SPEC-070-C D10 — register the NET-NEW async `shouldOpen` veto. The
+        // native `handleURL(_:)` awaits this before dispatching the deep link;
+        // nil/timeout → allow (open).
+        AppDNA.deepLinks.asyncShouldOpen = { [weak self] url, params in
+            guard let invoker = self?.invoker else { return true }
+            let reply = await invoker.invokeDart("shouldOpen", [
+                "url": url.absoluteString,
+                "params": params
+            ])
+            return (reply as? Bool) ?? true
+        }
         return nil
     }
 
     func onCancel(withArguments arguments: Any?) -> FlutterError? {
         AppDNA.deepLinks.setDelegate(nil)
+        AppDNA.deepLinks.asyncShouldOpen = nil
         self.sink = nil
         return nil
     }
@@ -1017,15 +1047,31 @@ private class DeepLinkDelegateForwarder: NSObject, AppDNADeepLinkDelegate, Flutt
 
 private class ScreenDelegateForwarder: NSObject, AppDNAScreenDelegate, FlutterStreamHandler {
     private var sink: FlutterEventSink?
+    /// SPEC-070-C D10 — native -> Dart invoker for the async `onScreenAction`
+    /// wrapper-veto. Injected in `register(...)`.
+    weak var invoker: SyncCallbackInvoker?
 
     func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
         self.sink = events
         AppDNA.screenDelegate = self
+        // SPEC-070-C D10 — register the async `onScreenAction` veto. The native
+        // SDK awaits this before performing the action (its synchronous
+        // `onScreenAction` below always returns true); nil/timeout → allow.
+        AppDNA.asyncOnScreenAction = { [weak self] screenId, action in
+            guard let invoker = self?.invoker else { return true }
+            let actionMap: [String: Any?] = self?.sectionActionToMap(action) ?? [:]
+            let reply = await invoker.invokeDart("onScreenAction", [
+                "screenId": screenId,
+                "action": actionMap
+            ])
+            return (reply as? Bool) ?? true
+        }
         return nil
     }
 
     func onCancel(withArguments arguments: Any?) -> FlutterError? {
         AppDNA.screenDelegate = nil
+        AppDNA.asyncOnScreenAction = nil
         self.sink = nil
         return nil
     }

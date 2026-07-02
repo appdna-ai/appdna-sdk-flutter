@@ -186,9 +186,17 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                 val fwd = InAppMessageDelegateForwarder()
                 inAppMessageForwarder = fwd
                 AppDNA.inAppMessages.setDelegate(fwd)
+                // SPEC-070-C D10 — register the async shouldShowMessage veto.
+                // The native SDK awaits this in ADDITION to the sync delegate
+                // veto; invokeDart applies the timeout-default + logs, and a
+                // null/timeout reply defaults to allow (true).
+                AppDNA.inAppMessages.setAsyncShouldShowMessage { messageId ->
+                    (invokeDart("shouldShowMessage", mapOf("messageId" to messageId)) as? Boolean) ?: true
+                }
             }
             override fun onCancel(arguments: Any?) {
                 AppDNA.inAppMessages.setDelegate(null)
+                AppDNA.inAppMessages.setAsyncShouldShowMessage(null)
                 inAppMessageForwarder = null
                 inAppMessageEventSink = null
             }
@@ -231,9 +239,16 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                 val fwd = DeepLinkDelegateForwarder()
                 deepLinkForwarder = fwd
                 AppDNA.deepLinks.setDelegate(fwd)
+                // SPEC-070-C D10 — register the NET-NEW async shouldOpen veto.
+                // The native handleURL() awaits this before dispatching the
+                // deep link; null/timeout → allow (open).
+                AppDNA.deepLinks.asyncShouldOpen = { url, params ->
+                    (invokeDart("shouldOpen", mapOf("url" to url, "params" to params)) as? Boolean) ?: true
+                }
             }
             override fun onCancel(arguments: Any?) {
                 AppDNA.deepLinks.setDelegate(null)
+                AppDNA.deepLinks.asyncShouldOpen = null
                 deepLinkForwarder = null
                 deepLinkEventSink = null
             }
@@ -246,9 +261,16 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                 val fwd = ScreenDelegateForwarder()
                 screenForwarder = fwd
                 AppDNA.screenDelegate = fwd
+                // SPEC-070-C D10 — register the async onScreenAction veto. The
+                // native SDK awaits this before performing the action (the sync
+                // forwarder below always returns true); null/timeout → allow.
+                AppDNA.asyncOnScreenAction = { screenId, action ->
+                    (invokeDart("onScreenAction", mapOf("screenId" to screenId, "action" to action)) as? Boolean) ?: true
+                }
             }
             override fun onCancel(arguments: Any?) {
                 AppDNA.screenDelegate = null
+                AppDNA.asyncOnScreenAction = null
                 screenForwarder = null
                 screenEventSink = null
             }

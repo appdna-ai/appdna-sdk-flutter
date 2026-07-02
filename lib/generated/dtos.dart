@@ -2,7 +2,7 @@
 // Source: src/lib/sdk-codegen/dto-registry.ts
 // Generator: scripts/sdk-codegen/emit-dtos.ts
 // Regenerate: pnpm sdk-codegen
-// Last codegen commit: 9b514e667c4204268ef456415a60d2f7a7f59a9b
+// Last codegen commit: 85473b173a44db0d2ed1488f176c3c76ceb5a27a
 
 enum AppDNAEnvironmentRegion {
   us('us'),
@@ -65,5 +65,104 @@ class AppDNAEnvironment {
       region: AppDNAEnvironmentRegion.fromRaw(map['region'] as String?)!,
       featureFlags: (map['feature_flags'] as List?)?.cast<String>() ?? const [],
     );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'api_base': apiBase,
+      'config_base': configBase,
+      'events_base': eventsBase,
+      'sdk_version': sdkVersion,
+      'is_dev': isDev,
+      if (rolloutPercentage != null) 'rollout_percentage': rolloutPercentage,
+      'region': region.raw,
+      'feature_flags': featureFlags,
+    };
+  }
+}
+
+/// AppDNAPushAction — one structured notification action button on a push payload (SPEC-070-A push section; matches push_payload/action_buttons_parse fixture).
+class AppDNAPushAction {
+  /// Stable action identifier — registers the notification button and echoes back on tap.
+  final String id;
+
+  /// Button label shown in the notification tray (may be template-interpolated).
+  final String label;
+
+  /// Action kind, e.g. "deep_link" | "dismiss" | "show_screen".
+  final String actionType;
+
+  /// Action target (deep-link URL / screen id); absent for actions like "dismiss".
+  final String? actionValue;
+
+  const AppDNAPushAction({
+    required this.id,
+    required this.label,
+    required this.actionType,
+    this.actionValue,
+  });
+
+  factory AppDNAPushAction.fromMap(Map<String, dynamic> map) {
+    return AppDNAPushAction(
+      id: map['id'] as String,
+      label: map['label'] as String,
+      actionType: map['action_type'] as String,
+      actionValue: map['action_value'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'label': label,
+      'action_type': actionType,
+      if (actionValue != null) 'action_value': actionValue,
+    };
+  }
+}
+
+/// AppDNAPushPayload — a delivered push notification the SDK surfaces to the host app (SPEC-070-A push section; matches push_payload/action_buttons_parse fixture).
+class AppDNAPushPayload {
+  /// Server-assigned push campaign/message id; echoed on push_received / push_tapped events.
+  final String pushId;
+
+  /// Notification title (post template interpolation).
+  final String title;
+
+  /// Notification body text; optional for data-only / title-only pushes.
+  final String? body;
+
+  /// Optional rich-media image URL for the expanded notification.
+  final String? imageUrl;
+
+  /// Structured notification action buttons registered for this push.
+  final List<AppDNAPushAction>? actions;
+
+  const AppDNAPushPayload({
+    required this.pushId,
+    required this.title,
+    this.body,
+    this.imageUrl,
+    this.actions,
+  });
+
+  factory AppDNAPushPayload.fromMap(Map<String, dynamic> map) {
+    return AppDNAPushPayload(
+      pushId: map['push_id'] as String,
+      title: map['title'] as String,
+      body: map['body'] as String?,
+      imageUrl: map['image_url'] as String?,
+      actions: (map['actions'] as List?)?.map((e) => AppDNAPushAction.fromMap(Map<String, dynamic>.from(e as Map))).toList(),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'push_id': pushId,
+      'title': title,
+      if (body != null) 'body': body,
+      if (imageUrl != null) 'image_url': imageUrl,
+      if (actions != null) 'actions': actions!.map((e) => e.toMap()).toList(),
+    };
   }
 }

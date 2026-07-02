@@ -128,6 +128,15 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         screenForwarder.invoker = syncInvoker
         instance.screenForwarder = screenForwarder
         screenChannel.setStreamHandler(screenForwarder)
+
+        // SPEC-070-C Phase 2b — register the AppDNAScreenSlot PlatformView
+        // factory. The Dart `AppDNAScreenSlot` widget embeds a `UiKitView` with
+        // this same viewType; the factory wraps the SwiftUI `AppDNAScreenSlot`
+        // in a retained UIHostingController.
+        registrar.register(
+            AppDNAScreenSlotFactory(),
+            withId: "com.appdna.sdk/screen_slot"
+        )
     }
 
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {

@@ -17,6 +17,10 @@ export 'models/appdna_options.dart';
 export 'billing.dart';
 export 'push.dart';
 
+// SPEC-070-C Phase 2b — inline server-driven screen slot widget. Hosts the
+// native AppDNAScreenSlot (SwiftUI / Compose) as a Flutter platform view.
+export 'screen_slot.dart';
+
 // Generated delegate interfaces are the canonical public API (SPEC-070-0).
 // These supersede the previously hand-written abstract classes that lived
 // at the bottom of this file. Customer code that implemented the old

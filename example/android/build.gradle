@@ -1,5 +1,13 @@
 allprojects {
     repositories {
+        // SPEC-070-C D13 on-branch override: prefer a locally-published sdk-android
+        // (`./gradlew publishToMavenLocal` on the SDK) so the plugin compiles against
+        // UNRELEASED native (the D10 veto seams) before republish. Gated on
+        // APPDNA_ANDROID_SDK_PATH (providers = Gradle-daemon-safe env read); unset in
+        // CI/publish → mavenCentral is used. Listed FIRST so the local artifact wins.
+        if (providers.environmentVariable("APPDNA_ANDROID_SDK_PATH").getOrNull()?.trim()) {
+            mavenLocal()
+        }
         google()
         mavenCentral()
     }

@@ -287,6 +287,16 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
             // Reserved for future synchronous-veto handshakes from Dart.
             result.notImplemented()
         }
+
+        // SPEC-070-C Phase 2b — register the AppDNAScreenSlot PlatformView
+        // factory. The Dart `AppDNAScreenSlot` widget embeds an `AndroidView`
+        // with this same viewType; the factory hosts the `@Composable
+        // AppDNAScreenSlot(name)` in a ComposeView with plugin-owned ViewTree
+        // owners (bare FlutterActivity has none).
+        binding.platformViewRegistry.registerViewFactory(
+            "com.appdna.sdk/screen_slot",
+            AppDNAScreenSlotViewFactory(),
+        )
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {

@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Appdna Sdk Example</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>appdna_sdk_example</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(FLUTTER_BUILD_NAME)</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UIMainStoryboardFile</key>
+	<string>Main</string>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<!-- SPEC-070-C D16: host capability declarations for the AppDNA SDK onboarding permission steps.
+	     Host-flow-dependent — a real integrator declares only the permission types their flow uses.
+	     Without the NS*UsageDescription key the SDK crash-guards to `.unavailable` (no crash) and the
+	     permission cannot be granted, so the flow step won't advance. -->
+	<key>NSCameraUsageDescription</key>
+	<string>This demo requests camera access to showcase the AppDNA onboarding camera-permission step.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>This demo requests microphone access to showcase the AppDNA onboarding microphone-permission step.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>This demo requests photo-library access to showcase the AppDNA onboarding photos-permission step.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>This demo requests contacts access to showcase the AppDNA onboarding contacts-permission step.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>This demo requests calendar access to showcase the AppDNA onboarding calendar-permission step.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>This demo requests calendar access to showcase the AppDNA onboarding calendar-permission step.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>This demo requests location access to showcase the AppDNA onboarding location-permission step.</string>
+	<key>NSUserTrackingUsageDescription</key>
+	<string>This demo requests tracking authorization to showcase the AppDNA onboarding ATT-permission step.</string>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>ai.appdna.sdk.eventUpload</string>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>processing</string>
+		<string>remote-notification</string>
+	</array>
+</dict>
+</plist>

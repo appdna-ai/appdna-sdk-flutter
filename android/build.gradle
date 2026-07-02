@@ -1,5 +1,5 @@
 group 'com.appdna.flutter'
-version '0.3.0'
+version '1.0.5'
 
 buildscript {
     ext.kotlin_version = '1.9.22'
@@ -48,5 +48,5 @@ android {
 
 dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
-    implementation 'ai.appdna:appdna-sdk-android:0.3.0'
+    implementation 'ai.appdna:sdk-android:1.0.39'
 }

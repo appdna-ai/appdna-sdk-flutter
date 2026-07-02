@@ -22,4 +22,17 @@ plugins {
     id "org.jetbrains.kotlin.android" version "1.9.22" apply false
 }
 
+// SPEC-070-C D13 on-branch override: substitute the LOCAL sdk-android build for the
+// published ai.appdna:sdk-android artifact when APPDNA_ANDROID_SDK_PATH is set, so
+// unreleased native (D10 veto seams) is compile-verified before publish. Unset in
+// CI/publish → the mavenCentral artifact from the plugin's dependency is used.
+def localAndroidSdk = System.getenv("APPDNA_ANDROID_SDK_PATH")
+if (localAndroidSdk?.trim()) {
+    includeBuild(localAndroidSdk) {
+        dependencySubstitution {
+            substitute module("ai.appdna:sdk-android") using project(":")
+        }
+    }
+}
+
 include ":app"

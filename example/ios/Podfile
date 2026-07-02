@@ -31,6 +31,15 @@ target 'Runner' do
   use_frameworks!
   use_modular_headers!
 
+  # SPEC-070-C D13 on-branch override: build against a LOCAL iOS SDK when
+  # APPDNA_IOS_SDK_PATH is set, so unreleased native (D10 veto seams) can be
+  # compile-verified before publish. Unset in CI/publish → the registry pod
+  # from the plugin's podspec dependency is used.
+  local_ios_sdk = ENV['APPDNA_IOS_SDK_PATH']
+  if local_ios_sdk && !local_ios_sdk.empty?
+    pod 'AppDNASDK', :path => local_ios_sdk
+  end
+
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 
   target 'RunnerTests' do

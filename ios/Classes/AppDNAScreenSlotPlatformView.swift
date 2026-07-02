@@ -33,7 +33,7 @@ final class AppDNAScreenSlotFactory: NSObject, FlutterPlatformViewFactory {
 
     /// `creationParams` arrive from Dart encoded with the StandardMessageCodec,
     /// so the factory must decode with the matching standard codec.
-    func createArgsCodec() -> (FlutterMessageCodec & NSObjectProtocol)? {
+    func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
         return FlutterStandardMessageCodec.sharedInstance()
     }
 }

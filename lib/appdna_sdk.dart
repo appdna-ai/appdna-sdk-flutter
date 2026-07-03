@@ -371,6 +371,22 @@ class AppDNA {
     return data == null ? {} : Map<String, dynamic>.from(data);
   }
 
+  /// SPEC-070-C §3.1 — app-defined session data (a key/value store scoped to the
+  /// SDK session). Values must be StandardMessageCodec-serializable.
+  static Future<void> setSessionData(String key, Object value) async {
+    await _channel.invokeMethod('setSessionData', {'key': key, 'value': value});
+  }
+
+  /// Retrieve a session-data value by key (null if unset).
+  static Future<dynamic> getSessionData(String key) async {
+    return await _channel.invokeMethod('getSessionData', {'key': key});
+  }
+
+  /// Clear all app-defined session data.
+  static Future<void> clearSessionData() async {
+    await _channel.invokeMethod('clearSessionData');
+  }
+
   /// Force a forced-theme override. Valid values: `'light'`, `'dark'`,
   /// `'system'`, or `null` to follow the system. **Android-only** — a
   /// documented no-op on iOS (§3.14).

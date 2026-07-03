@@ -429,6 +429,19 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         case "getUserTraits":
             result(AppDNA.getUserTraits())
 
+        // SPEC-070-C §3.1 — app-defined session data (SPEC-088).
+        case "setSessionData":
+            let sdKey = args["key"] as! String
+            if let sdValue = args["value"], !(sdValue is NSNull) {
+                AppDNA.setSessionData(key: sdKey, value: sdValue)
+            }
+            result(nil)
+        case "getSessionData":
+            result(AppDNA.getSessionData(key: args["key"] as! String))
+        case "clearSessionData":
+            AppDNA.clearSessionData()
+            result(nil)
+
         // §3.14 iOS no-ops (Android-only forced-theme / init delegate).
         case "setForcedTheme", "getForcedTheme", "getLastInitError":
             result(nil)

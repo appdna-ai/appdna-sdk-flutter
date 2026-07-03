@@ -706,6 +706,20 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
             "getUserTraits" -> {
                 result.success(AppDNA.getUserTraits())
             }
+            // SPEC-070-C §3.1 — app-defined session data (SPEC-088).
+            "setSessionData" -> {
+                val k = call.argument<String>("key")!!
+                val v = call.argument<Any>("value")
+                if (v != null) AppDNA.setSessionData(k, v)
+                result.success(null)
+            }
+            "getSessionData" -> {
+                result.success(AppDNA.getSessionData(call.argument<String>("key")!!))
+            }
+            "clearSessionData" -> {
+                AppDNA.clearSessionData()
+                result.success(null)
+            }
             // Android-only forced-theme override. Dart passes 'light'/'dark'/
             // 'system'/null; map to the ForcedTheme enum (null = follow system).
             "setForcedTheme" -> {

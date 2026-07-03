@@ -2,7 +2,34 @@
 enum AppDNALogLevel { none, error, warning, info, debug }
 
 /// Billing provider for paywall purchases (iOS only).
-enum AppDNABillingProvider { storeKit2, revenueCat, none }
+///
+/// Value-less providers cross the channel as a bare string; `adapty` carries an
+/// API key and crosses as a tagged map `{"type":"adapty","apiKey":"…"}` — mirroring
+/// the native `BillingProvider.adapty(apiKey:)` associated-value case (SPEC-070-C §3.1).
+class AppDNABillingProvider {
+  /// Provider discriminator: `storeKit2` | `revenueCat` | `adapty` | `none`.
+  final String type;
+
+  /// Adapty public SDK key (only set for the `adapty` provider).
+  final String? apiKey;
+
+  const AppDNABillingProvider._(this.type, {this.apiKey});
+
+  static const AppDNABillingProvider storeKit2 =
+      AppDNABillingProvider._('storeKit2');
+  static const AppDNABillingProvider revenueCat =
+      AppDNABillingProvider._('revenueCat');
+  static const AppDNABillingProvider none = AppDNABillingProvider._('none');
+
+  /// Adapty billing, keyed by your Adapty public SDK key.
+  factory AppDNABillingProvider.adapty(String apiKey) =>
+      AppDNABillingProvider._('adapty', apiKey: apiKey);
+
+  /// Channel encoding: a bare string for value-less cases, a tagged map for adapty.
+  Object toJson() => apiKey == null
+      ? type
+      : <String, dynamic>{'type': type, 'apiKey': apiKey};
+}
 
 /// Configuration options for the AppDNA SDK.
 class AppDNAOptions {
@@ -40,7 +67,7 @@ class AppDNAOptions {
         if (batchSize != null) 'batchSize': batchSize,
         if (configTTL != null) 'configTTL': configTTL,
         if (logLevel != null) 'logLevel': logLevel!.name,
-        if (billingProvider != null) 'billingProvider': billingProvider!.name,
+        if (billingProvider != null) 'billingProvider': billingProvider!.toJson(),
         // Always tag Flutter traffic (defaults to 'flutter' when not overridden).
         'framework': framework ?? 'flutter',
       };

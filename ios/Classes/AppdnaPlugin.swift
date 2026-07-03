@@ -519,13 +519,21 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         default: logLevel = .warning
         }
 
-        let billingProviderStr = dict["billingProvider"] as? String
+        // billingProvider crosses as a bare string for value-less cases, or a tagged
+        // map {"type":"adapty","apiKey":"…"} for the associated-value adapty case
+        // (SPEC-070-C §3.1 — BillingProvider.adapty(apiKey:)).
         let billingProvider: BillingProvider
-        switch billingProviderStr {
-        case "revenueCat": billingProvider = .revenueCat
-        case "storeKit2": billingProvider = .storeKit2
-        case "none": billingProvider = .none
-        default: billingProvider = .storeKit2
+        if let map = dict["billingProvider"] as? [String: Any],
+           map["type"] as? String == "adapty" {
+            billingProvider = .adapty(apiKey: map["apiKey"] as? String ?? "")
+        } else {
+            switch dict["billingProvider"] as? String {
+            case "revenueCat": billingProvider = .revenueCat
+            case "storeKit2": billingProvider = .storeKit2
+            case "none": billingProvider = .none
+            case "adapty": billingProvider = .adapty(apiKey: "")
+            default: billingProvider = .storeKit2
+            }
         }
 
         return AppDNAOptions(

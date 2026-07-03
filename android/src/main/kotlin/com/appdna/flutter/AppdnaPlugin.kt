@@ -431,12 +431,21 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                         variant = map["variant"] as? String
                     )
                 }
-                activity?.let { AppDNA.presentPaywall(it, id, paywallContext) }
+                // SPEC-070-C HIGH-1/2 — route through the MODULE present() so the
+                // stored paywall listener (PaywallDelegateForwarder installed on
+                // the events/paywall stream's onListen) is forwarded. The static
+                // `AppDNA.presentPaywall(activity, id, context)` defaults
+                // listener=null and would leave all host paywall callbacks dead.
+                activity?.let { AppDNA.paywall.present(it, id, paywallContext) }
                 result.success(null)
             }
             "presentOnboarding" -> {
                 val flowId = call.argument<String>("flowId")!!
-                activity?.let { AppDNA.presentOnboarding(it, flowId) }
+                // SPEC-070-C HIGH-1 — route through the MODULE present() so the
+                // stored OnboardingDelegateForwarder is forwarded (the static
+                // `presentOnboarding(activity, flowId)` defaults listener=null,
+                // leaving all observe + sync_callbacks hooks dead).
+                activity?.let { AppDNA.onboarding.present(it, flowId) }
                 result.success(null)
             }
             "getRemoteConfig" -> {
@@ -693,11 +702,20 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                         variant = map["variant"] as? String,
                     )
                 }
-                activity?.let { AppDNA.presentPaywallByPlacement(it, placement, paywallContext) }
+                // SPEC-070-C HIGH-2 — no module-level placement present() exists,
+                // so pass the stored forwarder explicitly as the `listener` arg.
+                // `paywallForwarder` is set to the live forwarder only while the
+                // host is subscribed to the events/paywall stream (null otherwise),
+                // so this exactly mirrors the module's stored-listener behavior.
+                activity?.let { AppDNA.presentPaywallByPlacement(it, placement, paywallContext, paywallForwarder) }
                 result.success(null)
             }
             "showPaywall" -> {
-                AppDNA.showPaywall(call.argument<String>("id")!!)
+                // SPEC-070-C HIGH-2 — route through the MODULE present() so the
+                // stored paywall listener is forwarded. The static
+                // `AppDNA.showPaywall(id)` routes through presentPaywall with
+                // listener=null.
+                activity?.let { AppDNA.paywall.present(it, call.argument<String>("id")!!) }
                 result.success(null)
             }
             "skipNextAutoDismissOnRestore" -> {
@@ -1520,9 +1538,30 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                     "screens_viewed" -> "screensViewed"
                     else -> key
                 }
-                out[camel] = value
+                // SPEC-070-C LOW-1 — the native Android SDK emits the ScreenError
+                // as its SCREAMING_SNAKE `enum.name` (e.g. SCREEN_NOT_FOUND); iOS
+                // emits the Codable camelCase rawValue (screenNotFound). Round-3
+                // normalized result KEYS but not this VALUE — convert it too so
+                // cross-platform hosts compare one string.
+                out[camel] = if (camel == "error" && value is String) iosScreenErrorValue(value) else value
             }
             return out
+        }
+
+        /**
+         * SPEC-070-C LOW-1 — map the Android `ScreenError.name` (SCREAMING_SNAKE)
+         * to the iOS `ScreenError` Codable camelCase rawValue. The two enums are
+         * defined in the same order with matching cases; unknown values pass
+         * through untouched.
+         */
+        private fun iosScreenErrorValue(name: String): String = when (name) {
+            "CONFIG_FETCH_FAILED" -> "configFetchFailed"
+            "CONFIG_FETCH_TIMEOUT" -> "configFetchTimeout"
+            "SCREEN_NOT_FOUND" -> "screenNotFound"
+            "CONFIG_PARSE_ERROR" -> "configParseError"
+            "CONFIG_INVALID" -> "configInvalid"
+            "NESTING_DEPTH_EXCEEDED" -> "nestingDepthExceeded"
+            else -> name
         }
     }
 

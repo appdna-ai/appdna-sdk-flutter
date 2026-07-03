@@ -198,14 +198,23 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         case "presentPaywall":
             let id = args["id"] as! String
             let context = parsePaywallContext(args["context"] as? [String: Any])
-            if let vc = UIApplication.shared.topViewController {
-                AppDNA.presentPaywall(id: id, from: vc, context: context)
-            }
+            // SPEC-070-C HIGH-1/2 — route through the MODULE present() so the
+            // stored paywall delegate (the PaywallDelegateForwarder installed on
+            // the events/paywall stream's onListen) is the active delegate. The
+            // static `AppDNA.presentPaywall(id:from:context:)` takes its own
+            // `delegate:` param (default nil) and would NOT fall back to the
+            // module delegate, leaving all 12 host paywall callbacks dead.
+            // The module present() resolves the top view controller itself.
+            AppDNA.paywall.present(id, context: context)
             result(nil)
 
         case "presentOnboarding":
             let flowId = args["flowId"] as? String
-            AppDNA.presentOnboarding(flowId: flowId)
+            // SPEC-070-C HIGH-1 — route through the MODULE present() so the
+            // stored OnboardingDelegateForwarder is the active delegate (the
+            // static top-level `presentOnboarding(flowId:)` defaults delegate:nil
+            // and would leave all observe + sync_callbacks hooks dead).
+            AppDNA.onboarding.present(flowId: flowId)
             result(nil)
 
         case "getRemoteConfig":
@@ -424,12 +433,21 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             let placement = args["placement"] as! String
             let ctx = parsePaywallContext(args["context"] as? [String: Any])
             if let vc = UIApplication.shared.topViewController {
-                AppDNA.presentPaywall(placement: placement, from: vc, context: ctx)
+                // SPEC-070-C HIGH-2 — no module-level placement present() exists,
+                // so pass the stored forwarder explicitly as the `delegate:` arg
+                // to make the host paywall delegate surface live (the static
+                // overload otherwise defaults delegate:nil). `paywallForwarder`
+                // is created in register() and held strongly; its sink no-ops
+                // until the host subscribes to the events/paywall stream.
+                AppDNA.presentPaywall(placement: placement, from: vc, context: ctx, delegate: paywallForwarder)
             }
             result(nil)
 
         case "showPaywall":
-            AppDNA.showPaywall(args["id"] as! String)
+            // SPEC-070-C HIGH-2 — route through the MODULE present() (which
+            // resolves the top view controller + forwards the stored delegate).
+            // The static `AppDNA.showPaywall(_:)` presents with delegate:nil.
+            AppDNA.paywall.present(args["id"] as! String)
             result(nil)
 
         case "skipNextAutoDismissOnRestore":

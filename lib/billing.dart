@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/services.dart';
+import 'generated/delegates.dart';
 
 /// Represents a user's entitlement to a product or subscription.
 class Entitlement {
@@ -90,37 +91,73 @@ class AppDNABilling {
       MethodChannel('com.appdna.sdk/billing');
   static const EventChannel _entitlementChannel =
       EventChannel('com.appdna.sdk/entitlements');
+  // SPEC-070-C H2 — the billing lifecycle delegate is fed by the native
+  // BillingDelegateForwarder over this observe-only EventChannel (the same
+  // `{type, args}` envelope every other delegate stream uses). The old wiring
+  // set a handler on the `com.appdna.sdk/billing` COMMAND channel, which native
+  // never invokes — the delegate was dead.
+  static const EventChannel _delegateChannel =
+      EventChannel('com.appdna.sdk/events/billing');
+  AppDNABillingDelegate? _delegate;
+  StreamSubscription? _delegateSub;
 
-  /// Set a delegate to receive billing lifecycle callbacks (purchases, failures, restores).
-  void setDelegate(dynamic delegate) {
-    _channel.setMethodCallHandler((call) async {
-      switch (call.method) {
-        case 'onPurchaseCompleted':
-          delegate.onPurchaseCompleted(
-            call.arguments['productId'],
-            Map<String, dynamic>.from(call.arguments['transaction'] ?? {}),
-          );
-          break;
-        case 'onPurchaseFailed':
-          delegate.onPurchaseFailed(
-              call.arguments['productId'], call.arguments['error']);
-          break;
-        case 'onEntitlementsChanged':
-          final List<Map<String, dynamic>> entitlements =
-              (call.arguments['entitlements'] as List)
-                  .map((e) => Map<String, dynamic>.from(e as Map))
-                  .toList();
-          delegate.onEntitlementsChanged(entitlements);
-          break;
-        case 'onRestoreCompleted':
-          final List<String> restoredProducts =
-              (call.arguments['restoredProducts'] as List)
-                  .map((e) => e.toString())
-                  .toList();
-          delegate.onRestoreCompleted(restoredProducts);
-          break;
-      }
-    });
+  /// Set a delegate to receive billing lifecycle callbacks (purchases,
+  /// failures, entitlement changes, restores, billing-unavailable).
+  /// Pass `null` to clear the current delegate and stop listening.
+  void setDelegate(AppDNABillingDelegate? delegate) {
+    _delegate = delegate;
+    _delegateSub?.cancel();
+    _delegateSub = null;
+    if (delegate == null) return;
+    _delegateSub = _delegateChannel.receiveBroadcastStream().listen(_dispatch);
+  }
+
+  void _dispatch(dynamic raw) {
+    if (raw is! Map) return;
+    final type = raw['type'] as String?;
+    final args =
+        (raw['args'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    final d = _delegate;
+    if (d == null || type == null) return;
+    switch (type) {
+      case 'onPurchaseCompleted':
+        d.onPurchaseCompleted(
+          args['productId'] as String? ?? '',
+          (args['transaction'] as Map?)?.cast<String, dynamic>() ??
+              <String, dynamic>{},
+        );
+        break;
+      case 'onPurchaseFailed':
+        // Generated delegate types this as `Object`; native sends a
+        // { message, type } map. Pass through verbatim.
+        d.onPurchaseFailed(
+          args['productId'] as String? ?? '',
+          args['error'] ?? const <String, dynamic>{},
+        );
+        break;
+      case 'onEntitlementsChanged':
+        // Each entry is an Entitlement-shaped map (productId/store/status/…);
+        // the host parses via Entitlement.fromMap.
+        final entitlements = (args['entitlements'] as List?)
+                ?.map((e) => (e as Map).cast<String, dynamic>())
+                .toList() ??
+            <Map<String, dynamic>>[];
+        d.onEntitlementsChanged(entitlements);
+        break;
+      case 'onRestoreCompleted':
+        final restored = (args['restoredProductIds'] as List?)
+                ?.map((e) => e.toString())
+                .toList() ??
+            const <String>[];
+        d.onRestoreCompleted(restored);
+        break;
+      case 'onBillingUnavailable':
+        d.onBillingUnavailable();
+        break;
+      default:
+        // Unknown event — forward-compat with future native methods.
+        break;
+    }
   }
 
   /// Register a callback for entitlement changes.

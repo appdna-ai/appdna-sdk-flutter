@@ -85,7 +85,8 @@
         { "method": "onPermissionRequest", "ios": true, "android": true },
         { "method": "shouldShowMessage", "ios": true, "android": true },
         { "method": "onScreenAction", "ios": true, "android": true },
-        { "method": "shouldOpen", "ios": true, "android": true }
+        { "method": "shouldOpen", "ios": true, "android": true },
+        { "method": "onPromoCodeSubmit", "ios": true, "android": true }
       ]
     }
   }

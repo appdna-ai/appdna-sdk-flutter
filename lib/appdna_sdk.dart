@@ -104,6 +104,11 @@ class AppDNA {
         return screen._delegate?.onScreenAction(s('screenId'), m('action')) ?? true;
       case 'shouldOpen':
         return deepLinks._delegate?.shouldOpen(s('url'), m('params')) ?? true;
+      // §3.7 promo-code veto — completion-based natively. Default REJECT (false)
+      // when no delegate is registered (native also rejects on timeout).
+      case 'onPromoCodeSubmit':
+        return await paywall._delegate?.onPromoCodeSubmit(s('paywallId'), s('code')) ??
+            false;
       default:
         return null;
     }
@@ -115,10 +120,14 @@ class AppDNA {
     AppDNAOptions? options,
   }) async {
     _ensureSyncCallbacks();
+    // Always send an options map — even when the caller passes no options — so the
+    // D4 `framework: 'flutter'` tag reaches native (a bare native AppDNAOptions()
+    // defaults framework to 'native', which would mis-attribute every event on the
+    // common `configure(apiKey:)` path). AppDNAOptions().toMap() emits framework only.
     await _channel.invokeMethod('configure', {
       'apiKey': apiKey,
       'env': env.name,
-      if (options != null) 'options': options.toMap(),
+      'options': (options ?? const AppDNAOptions()).toMap(),
     });
   }
 
@@ -676,6 +685,18 @@ class AppDNAPaywallModule {
       case 'onPaywallDismissed':
         d.onPaywallDismissed(args['paywallId'] as String? ?? '');
         break;
+      // SPEC-070-C §3.7 — post-purchase observe hooks.
+      case 'onPostPurchaseDeepLink':
+        d.onPostPurchaseDeepLink(
+          args['paywallId'] as String? ?? '',
+          args['url'] as String? ?? '',
+        );
+        break;
+      case 'onPostPurchaseNextStep':
+        d.onPostPurchaseNextStep(args['paywallId'] as String? ?? '');
+        break;
+      // NOTE: onPromoCodeSubmit is a veto — it flows through the sync_callbacks
+      // channel (see AppDNA._handleSyncCallback), NOT this observe channel.
       default:
         break;
     }
@@ -685,6 +706,13 @@ class AppDNAPaywallModule {
 /// Remote config module namespace.
 class AppDNARemoteConfigModule {
   final MethodChannel _channel;
+  // SPEC-070-C M1 — a dedicated observe-only EventChannel. Native emits on it
+  // when remote config changes (iOS `remoteConfig.onChanged` /
+  // Android `remoteConfig.onChanged`). The old wiring set a handler on the MAIN
+  // channel — which native never invoked AND which clobbered any other main
+  // handler (incl. features.onChanged). Neither fired.
+  static const _events = EventChannel('com.appdna.sdk/events/remote_config');
+  StreamSubscription? _onChangedSub;
   AppDNARemoteConfigModule._(this._channel);
 
   Future<dynamic> get(String key) =>
@@ -701,18 +729,20 @@ class AppDNARemoteConfigModule {
   }
 
   /// Register a callback to be notified when remote config values change.
-  void onChanged(Function callback) {
-    _channel.setMethodCallHandler((call) async {
-      if (call.method == 'onRemoteConfigChanged') {
-        callback();
-      }
-    });
+  /// Replaces any previously-registered callback.
+  void onChanged(void Function() callback) {
+    _onChangedSub?.cancel();
+    _onChangedSub =
+        _events.receiveBroadcastStream().listen((_) => callback());
   }
 }
 
 /// Feature flags module namespace.
 class AppDNAFeaturesModule {
   final MethodChannel _channel;
+  // SPEC-070-C M1 — dedicated observe-only EventChannel (see remote-config note).
+  static const _events = EventChannel('com.appdna.sdk/events/features');
+  StreamSubscription? _onChangedSub;
   AppDNAFeaturesModule._(this._channel);
 
   Future<bool> isEnabled(String flag) async {
@@ -727,12 +757,11 @@ class AppDNAFeaturesModule {
   }
 
   /// Register a callback to be notified when feature flags change.
-  void onChanged(Function callback) {
-    _channel.setMethodCallHandler((call) async {
-      if (call.method == 'onFeatureFlagsChanged') {
-        callback();
-      }
-    });
+  /// Replaces any previously-registered callback.
+  void onChanged(void Function() callback) {
+    _onChangedSub?.cancel();
+    _onChangedSub =
+        _events.receiveBroadcastStream().listen((_) => callback());
   }
 }
 
@@ -807,9 +836,9 @@ class AppDNAInAppMessagesModule {
       case 'onMessageDismissed':
         d.onMessageDismissed(args['messageId'] as String? ?? '');
         break;
-      case 'shouldShowMessage':
-        d.shouldShowMessage(args['messageId'] as String? ?? '');
-        break;
+      // NOTE: shouldShowMessage is a veto — it flows through the sync_callbacks
+      // channel (AppDNA._handleSyncCallback), NOT this observe channel. Invoking
+      // it here too would run a side-effecting host predicate twice (SPEC-070-C L1).
       default:
         break;
     }
@@ -919,13 +948,8 @@ class AppDNADeepLinksModule {
               <String, dynamic>{},
         );
         break;
-      case 'shouldOpen':
-        d.shouldOpen(
-          args['url'] as String? ?? '',
-          (args['params'] as Map?)?.cast<String, dynamic>() ??
-              <String, dynamic>{},
-        );
-        break;
+      // NOTE: shouldOpen is a veto — it flows through the sync_callbacks channel
+      // (AppDNA._handleSyncCallback), NOT this observe channel (SPEC-070-C L1).
       default:
         break;
     }
@@ -980,8 +1004,18 @@ class AppDNAScreenModule {
 
   /// Render a screen from raw JSON for debugging or design preview.
   /// Use during development only.
-  Future<void> preview(Map<String, dynamic> json) {
-    return _channel.invokeMethod('previewScreen', {'json': json});
+  ///
+  /// SPEC-070-C §3.12 / M4 — returns the preview result map, or `null` when the
+  /// preview produced nothing. The two natives differ (reconciled here): iOS's
+  /// `previewScreen(json:completion:)` yields a full `ScreenResult` (returned as
+  /// a map: `screenId`/`dismissed`/`responses`/`lastAction`/`duration_ms`/`error`);
+  /// Android's `previewScreen(json)` yields only a success `Bool`, surfaced as
+  /// `{'success': <bool>}`.
+  Future<Map<String, dynamic>?> preview(Map<String, dynamic> json) async {
+    final data =
+        await _channel.invokeMethod<Map>('previewScreen', {'json': json});
+    if (data == null) return null;
+    return Map<String, dynamic>.from(data);
   }
 
   /// Set a delegate to receive server-driven screen lifecycle callbacks.
@@ -1019,13 +1053,9 @@ class AppDNAScreenModule {
               <String, dynamic>{},
         );
         break;
-      case 'onScreenAction':
-        d.onScreenAction(
-          args['screenId'] as String? ?? '',
-          (args['action'] as Map?)?.cast<String, dynamic>() ??
-              <String, dynamic>{},
-        );
-        break;
+      // NOTE: onScreenAction is a veto — it flows through the sync_callbacks
+      // channel (AppDNA._handleSyncCallback), NOT this observe channel. Invoking
+      // it here too would run a side-effecting host predicate twice (SPEC-070-C L1).
       default:
         break;
     }

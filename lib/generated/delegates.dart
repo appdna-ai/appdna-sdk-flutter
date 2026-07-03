@@ -2,7 +2,7 @@
 // Source: src/lib/sdk-delegates/index.ts
 // Generator: scripts/sdk-codegen/emit-delegates.ts
 // Regenerate: pnpm sdk-codegen
-// Last codegen commit: 85473b173a44db0d2ed1488f176c3c76ceb5a27a
+// Last codegen commit: f1033e35139be0976713db9167326590caafab72
 
 /// Onboarding flow lifecycle observer + SPEC-083/419/421 async return-value hooks (routed via the sync_callbacks channel on Flutter/RN; native-hand-written on iOS, hand-written-Android per D11).
 abstract class AppDNAOnboardingDelegate {
@@ -49,6 +49,15 @@ abstract class AppDNAPaywallDelegate {
   void onPaywallRestoreFailed(String paywallId, Object error) {}
 
   void onPaywallDismissed(String paywallId) {}
+
+  /// Validate a user-entered promo code. Return true to accept, false to reject. Routed via sync_callbacks; defaults to reject on no-delegate/timeout (SPEC-070-C §3.7).
+  Future<bool> onPromoCodeSubmit(String paywallId, String code) async => false;
+
+  /// Post-purchase: the SDK asks the host to open a deep-link URL.
+  void onPostPurchaseDeepLink(String paywallId, String url) {}
+
+  /// Post-purchase: the SDK asks the host to continue to the next onboarding step.
+  void onPostPurchaseNextStep(String paywallId) {}
 }
 
 /// Survey lifecycle observer.
@@ -97,9 +106,13 @@ abstract class AppDNABillingDelegate {
 
   void onPurchaseFailed(String productId, Object error) {}
 
-  void onEntitlementsChanged(List<String> entitlements) {}
+  /// Entitlements changed. Each map is an Entitlement (productId/store/status/expiresAt/isTrial/offerType) — parse via Entitlement.fromMap (SPEC-070-C §3.8).
+  void onEntitlementsChanged(List<Map<String, dynamic>> entitlements) {}
 
   void onRestoreCompleted(List<String> restoredProductIds) {}
+
+  /// Fires when billing is permanently unavailable (Play Services missing/broken). Android-only — never fires on iOS (SPEC-070-C §3.8/§3.14). Hide paywalls / disable purchase UI.
+  void onBillingUnavailable() {}
 }
 
 /// Deep link receiver with optional veto.

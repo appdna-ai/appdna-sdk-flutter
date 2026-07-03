@@ -81,6 +81,7 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             name: "com.appdna.sdk/events/paywall", binaryMessenger: messenger
         )
         let paywallForwarder = PaywallDelegateForwarder()
+        paywallForwarder.invoker = syncInvoker
         instance.paywallForwarder = paywallForwarder
         paywallChannel.setStreamHandler(paywallForwarder)
 
@@ -146,6 +147,20 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             name: "com.appdna.sdk/events/init", binaryMessenger: messenger
         )
         initChannel.setStreamHandler(NoopStreamHandler())
+
+        // SPEC-070-C M1 — remote-config / feature-flag change streams. On
+        // onListen each wires the native `onChanged` observer and emits a bare
+        // signal (Dart fires its `onChanged` callback; payload is ignored).
+        // FlutterEventChannel retains its stream handler, so no stored ref.
+        let remoteConfigChangeChannel = FlutterEventChannel(
+            name: "com.appdna.sdk/events/remote_config", binaryMessenger: messenger
+        )
+        remoteConfigChangeChannel.setStreamHandler(RemoteConfigChangeStreamHandler())
+
+        let featuresChangeChannel = FlutterEventChannel(
+            name: "com.appdna.sdk/events/features", binaryMessenger: messenger
+        )
+        featuresChangeChannel.setStreamHandler(FeaturesChangeStreamHandler())
     }
 
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -216,8 +231,10 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             result(AppDNA.getExperimentConfig(experimentId: experimentId, key: key))
 
         case "setPushToken":
+            // §3.11: the Dart facade sends the raw APNs token as a String — hex
+            // or base64. Try hex first, then fall back to base64 (L3).
             if let tokenStr = args["token"] as? String,
-               let tokenData = hexStringToData(tokenStr) {
+               let tokenData = hexStringToData(tokenStr) ?? Data(base64Encoded: tokenStr) {
                 AppDNA.setPushToken(tokenData)
             }
             result(nil)
@@ -354,12 +371,18 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             result(nil)
 
         // Dart sends the screen definition as a Map; native previewScreen takes
-        // a JSON string, so serialize before forwarding.
+        // a JSON string, so serialize before forwarding. iOS returns a
+        // ScreenResult via completion (Android returns a Bool) → marshal the
+        // ScreenResult back as a map (SPEC-070-C §3.12 / M4).
         case "previewScreen":
             if let jsonStr = jsonString(from: args["json"]) {
-                AppDNA.previewScreen(json: jsonStr)
+                AppDNA.previewScreen(json: jsonStr) { screenResult in
+                    let map = AppdnaPlugin.screenResultToMap(screenResult)
+                    DispatchQueue.main.async { result(map) }
+                }
+            } else {
+                result(nil)
             }
-            result(nil)
 
         // MARK: - SPEC-070-C §3.1 lifecycle / core
         case "registerBackgroundTasks":
@@ -443,6 +466,19 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         default:
             result(FlutterMethodNotImplemented)
         }
+    }
+
+    // MARK: - SPEC-070-C §3.12 — ScreenResult -> channel map for previewScreen
+    // (M4). Same shape the ScreenDelegateForwarder emits on `events/screen`.
+    fileprivate static func screenResultToMap(_ r: ScreenResult) -> [String: Any?] {
+        return [
+            "screenId": r.screenId,
+            "dismissed": r.dismissed,
+            "responses": r.responses,
+            "lastAction": r.lastAction,
+            "duration_ms": r.duration_ms,
+            "error": r.error?.rawValue
+        ]
     }
 
     // MARK: - SPEC-070-C §3.13 — LocationData -> channel map (snake_case keys
@@ -680,6 +716,54 @@ private class NoopStreamHandler: NSObject, FlutterStreamHandler {
         return nil
     }
     func onCancel(withArguments arguments: Any?) -> FlutterError? {
+        return nil
+    }
+}
+
+// MARK: - SPEC-070-C M1 remote-config / feature-flag change stream handlers
+//
+// Bridge the native `onChanged` observers to a Flutter EventChannel. iOS's
+// `onChanged` APPENDS observers (no removal API), so a `didRegister` guard
+// avoids stacking a second observer if the stream re-listens. The emitted
+// value is a bare `true` — the Dart side ignores the payload and just fires
+// the host callback.
+
+private class RemoteConfigChangeStreamHandler: NSObject, FlutterStreamHandler {
+    private var sink: FlutterEventSink?
+    private var didRegister = false
+    func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+        self.sink = events
+        if !didRegister {
+            didRegister = true
+            AppDNA.remoteConfig.onChanged { [weak self] in
+                guard let sink = self?.sink else { return }
+                if Thread.isMainThread { sink(true) } else { DispatchQueue.main.async { sink(true) } }
+            }
+        }
+        return nil
+    }
+    func onCancel(withArguments arguments: Any?) -> FlutterError? {
+        sink = nil
+        return nil
+    }
+}
+
+private class FeaturesChangeStreamHandler: NSObject, FlutterStreamHandler {
+    private var sink: FlutterEventSink?
+    private var didRegister = false
+    func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+        self.sink = events
+        if !didRegister {
+            didRegister = true
+            AppDNA.features.onChanged { [weak self] in
+                guard let sink = self?.sink else { return }
+                if Thread.isMainThread { sink(true) } else { DispatchQueue.main.async { sink(true) } }
+            }
+        }
+        return nil
+    }
+    func onCancel(withArguments arguments: Any?) -> FlutterError? {
+        sink = nil
         return nil
     }
 }
@@ -965,6 +1049,9 @@ private class OnboardingDelegateForwarder: NSObject, AppDNAOnboardingDelegate, F
 
 private class PaywallDelegateForwarder: NSObject, AppDNAPaywallDelegate, FlutterStreamHandler {
     private var sink: FlutterEventSink?
+    /// SPEC-070-C H3 — native -> Dart invoker for the completion-based
+    /// `onPromoCodeSubmit` veto. Injected in `register(...)`.
+    weak var invoker: SyncCallbackInvoker?
 
     func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
         self.sink = events
@@ -1016,14 +1103,19 @@ private class PaywallDelegateForwarder: NSObject, AppDNAPaywallDelegate, Flutter
     }
 
     func onPromoCodeSubmit(paywallId: String, code: String, completion: @escaping (Bool) -> Void) {
-        // Forward as observe-only for v1; default-reject the code since
-        // we can't synchronously await a Dart response. Sync-return
-        // bridging is a follow-up (documented in plugin scope).
-        sendEvent(sink, type: "onPromoCodeSubmit", args: [
-            "paywallId": paywallId,
-            "code": code
-        ])
-        completion(false)
+        // SPEC-070-C H3 — route the promo-code validation through the
+        // sync_callbacks channel and feed the host's Bool decision back into the
+        // native completion. Default REJECT (false) when no invoker / timeout /
+        // no host reply, so an absent host never accepts an unvalidated code.
+        guard let invoker = invoker else { completion(false); return }
+        Task {
+            let reply = await invoker.invokeDart("onPromoCodeSubmit", [
+                "paywallId": paywallId,
+                "code": code
+            ])
+            let accepted = (reply as? Bool) ?? false
+            DispatchQueue.main.async { completion(accepted) }
+        }
     }
 
     func onPostPurchaseDeepLink(paywallId: String, url: String) {
@@ -1149,13 +1241,12 @@ private class InAppMessageDelegateForwarder: NSObject, AppDNAInAppMessageDelegat
         sendEvent(sink, type: "onMessageDismissed", args: ["messageId": messageId])
     }
 
-    /// VETO method — `shouldShowMessage(messageId:) -> Bool` is synchronous
-    /// and cannot wait on a Dart roundtrip. v1 forwards the message as an
-    /// observe-only event on the in_app_message channel and defaults the
-    /// return value to `true` (always show). Sync veto bridging via a
-    /// blocking MethodChannel call from Dart is a follow-up.
+    /// VETO method. The real host veto runs through the async wrapper
+    /// (`asyncShouldShowMessage`, registered in `onListen`) over the
+    /// sync_callbacks channel — the native SDK awaits it in ADDITION to this
+    /// synchronous method. This sync path can't await a Dart roundtrip, so it
+    /// returns `true` (allow) and defers the decision to the async wrapper.
     func shouldShowMessage(messageId: String) -> Bool {
-        sendEvent(sink, type: "shouldShowMessage", args: ["messageId": messageId])
         return true
     }
 }
@@ -1248,22 +1339,19 @@ private class BillingDelegateForwarder: NSObject, AppDNABillingDelegate, Flutter
     }
 
     func onEntitlementsChanged(entitlements: [Entitlement]) {
-        let mapped: [[String: Any?]] = entitlements.map { e in
-            [
-                "identifier": e.identifier,
-                "isActive": e.isActive,
-                "expiresAt": e.expiresAt.map { $0.timeIntervalSince1970 * 1000 },
-                "productId": e.productId
-            ]
-        }
+        // SPEC-070-C H2 — emit the Dart `Entitlement.fromMap` contract shape
+        // (productId/store/status/expiresAt/isTrial/offerType) via the shared
+        // BillingMappers.toFlutterMap(), NOT the raw native field names.
+        let mapped: [[String: Any?]] = entitlements.map { $0.toFlutterMap() }
         sendEvent(sink, type: "onEntitlementsChanged", args: [
             "entitlements": mapped
         ])
     }
 
     func onRestoreCompleted(restoredProducts: [String]) {
+        // Key aligned with the Dart delegate param + Android forwarder.
         sendEvent(sink, type: "onRestoreCompleted", args: [
-            "restoredProducts": restoredProducts
+            "restoredProductIds": restoredProducts
         ])
     }
 }
@@ -1363,14 +1451,12 @@ private class ScreenDelegateForwarder: NSObject, AppDNAScreenDelegate, FlutterSt
         ])
     }
 
-    /// VETO method — `onScreenAction(screenId:action:) -> Bool` is
-    /// synchronous; v1 forwards as observe-only and defaults to `true`
-    /// (allow the action). Sync veto bridging is a follow-up.
+    /// VETO method. The real host veto runs through the async wrapper
+    /// (`asyncOnScreenAction`, registered in `onListen`) over the sync_callbacks
+    /// channel — the native SDK awaits it before performing the action. This
+    /// synchronous path can't await a Dart roundtrip, so it returns `true`
+    /// (allow) and defers the decision to the async wrapper.
     func onScreenAction(screenId: String, action: SectionAction) -> Bool {
-        sendEvent(sink, type: "onScreenAction", args: [
-            "screenId": screenId,
-            "action": sectionActionToMap(action)
-        ])
         return true
     }
 

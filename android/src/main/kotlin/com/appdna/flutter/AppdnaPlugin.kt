@@ -81,6 +81,8 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
     private lateinit var deepLinkEventChannel: EventChannel
     private lateinit var screenEventChannel: EventChannel
     private lateinit var initEventChannel: EventChannel
+    private lateinit var remoteConfigChangeChannel: EventChannel
+    private lateinit var featuresChangeChannel: EventChannel
     private lateinit var syncCallbackChannel: MethodChannel
 
     private var paywallEventSink: EventChannel.EventSink? = null
@@ -92,6 +94,12 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
     private var deepLinkEventSink: EventChannel.EventSink? = null
     private var screenEventSink: EventChannel.EventSink? = null
     private var initEventSink: EventChannel.EventSink? = null
+    private var remoteConfigChangeSink: EventChannel.EventSink? = null
+    private var featuresChangeSink: EventChannel.EventSink? = null
+    // M1 — guard so the native onChanged observer is registered once per stream
+    // (native `onChanged` adds a listener each call with no removal API).
+    private var remoteConfigChangeRegistered = false
+    private var featuresChangeRegistered = false
 
     // Forwarder instances we install on the native modules. Kept as properties
     // so onCancel() can call setDelegate(null) cleanly on stream tear-down.
@@ -299,15 +307,44 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
             }
         })
 
-        // Synchronous-veto MethodChannel. v1 only ships the InAppMessage
-        // observe path (the veto fires through the in_app_message event
-        // channel and the native side defaults shouldShowMessage() to true).
-        // Real veto plumbing requires bridging Kotlin sync return -> Dart
-        // async invokeMethod -> Kotlin CompletableDeferred, which is left
-        // to a follow-up. Channel is registered now so the wire is reserved.
+        // SPEC-070-C M1 — remote-config / feature-flag change streams. On
+        // onListen each wires the native `onChanged` observer (once) and emits a
+        // bare signal; the Dart side ignores the payload and fires its callback.
+        remoteConfigChangeChannel = EventChannel(binding.binaryMessenger, "com.appdna.sdk/events/remote_config")
+        remoteConfigChangeChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                remoteConfigChangeSink = events
+                if (!remoteConfigChangeRegistered) {
+                    remoteConfigChangeRegistered = true
+                    AppDNA.remoteConfig.onChanged { emit(remoteConfigChangeSink, "onRemoteConfigChanged", emptyMap()) }
+                }
+            }
+            override fun onCancel(arguments: Any?) {
+                remoteConfigChangeSink = null
+            }
+        })
+
+        featuresChangeChannel = EventChannel(binding.binaryMessenger, "com.appdna.sdk/events/features")
+        featuresChangeChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                featuresChangeSink = events
+                if (!featuresChangeRegistered) {
+                    featuresChangeRegistered = true
+                    AppDNA.features.onChanged { emit(featuresChangeSink, "onFeatureFlagsChanged", emptyMap()) }
+                }
+            }
+            override fun onCancel(arguments: Any?) {
+                featuresChangeSink = null
+            }
+        })
+
+        // Bidirectional sync-callback MethodChannel. Native -> Dart veto + async
+        // onboarding hooks flow through `invokeDart()` (see below) and are fully
+        // implemented. This inbound handler is for the (currently unused)
+        // Dart -> native direction only.
         syncCallbackChannel = MethodChannel(binding.binaryMessenger, "com.appdna.sdk/sync_callbacks")
         syncCallbackChannel.setMethodCallHandler { _, result ->
-            // Reserved for future synchronous-veto handshakes from Dart.
+            // No Dart -> native sync calls are defined today.
             result.notImplemented()
         }
 
@@ -338,6 +375,8 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
         deepLinkEventChannel.setStreamHandler(null)
         screenEventChannel.setStreamHandler(null)
         initEventChannel.setStreamHandler(null)
+        remoteConfigChangeChannel.setStreamHandler(null)
+        featuresChangeChannel.setStreamHandler(null)
         syncCallbackChannel.setMethodCallHandler(null)
         runCatching { AppDNA.paywall.setDelegate(null) }
         runCatching { AppDNA.onboarding.setDelegate(null) }
@@ -573,15 +612,21 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                 result.success(null)
             }
             // Dart sends the screen definition as a Map; native previewScreen
-            // takes a JSON string, so serialize before forwarding.
+            // takes a JSON string, so serialize before forwarding. Android's
+            // previewScreen returns a success Bool (iOS returns a ScreenResult),
+            // surfaced to Dart as {success: <bool>} (SPEC-070-C §3.12 / M4).
             "previewScreen" -> {
                 val jsonStr = when (val json = call.argument<Any>("json")) {
                     is String -> json
                     is Map<*, *> -> org.json.JSONObject(json).toString()
                     else -> null
                 }
-                if (jsonStr != null) AppDNA.previewScreen(jsonStr)
-                result.success(null)
+                if (jsonStr != null) {
+                    val ok = AppDNA.previewScreen(jsonStr)
+                    result.success(mapOf("success" to ok))
+                } else {
+                    result.success(null)
+                }
             }
 
             // MARK: SPEC-070-C §3.1 lifecycle / core
@@ -1140,12 +1185,19 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
             emit(paywallEventSink, "onPostPurchaseNextStep", mapOf("paywallId" to paywallId))
         }
 
-        // onPromoCodeSubmit is NOT forwarded: it's a synchronous validation
-        // callback (host must invoke the completion handler with true/false
-        // before the Activity advances). Bridging that across the event-channel
-        // boundary requires a CompletableDeferred handshake — left to a
-        // follow-up. Default impl already returns false (= reject promo),
-        // matching the iOS observe-only event-channel contract for v1.
+        // SPEC-070-C H3 — route promo-code validation through the sync_callbacks
+        // channel and feed the host's Boolean decision back into the native
+        // completion. Default REJECT (false) on no host reply / timeout, so an
+        // absent host never accepts an unvalidated code.
+        override fun onPromoCodeSubmit(paywallId: String, code: String, completion: (Boolean) -> Unit) {
+            scope.launch {
+                val reply = invokeDart(
+                    "onPromoCodeSubmit",
+                    mapOf("paywallId" to paywallId, "code" to code),
+                )
+                completion((reply as? Boolean) ?: false)
+            }
+        }
     }
 
     /** Onboarding observe-only callbacks (4 methods). */
@@ -1301,16 +1353,13 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
         }
 
         /**
-         * Veto hook. v1 ALWAYS returns `true` — see plugin contract note.
-         * The callback still surfaces through the event channel as an
-         * observe-only `shouldShowMessage` event so Dart code can log /
-         * record the call, but cannot actually block display. Real veto
-         * support requires bridging this sync return through Dart via the
-         * `com.appdna.sdk/sync_callbacks` MethodChannel with a
-         * CompletableDeferred / timeout handshake — left to a follow-up.
+         * Veto hook. The real host veto runs through the async wrapper
+         * (`setAsyncShouldShowMessage`, registered in onListen) over the
+         * sync_callbacks channel — the native SDK awaits it in ADDITION to this
+         * synchronous method. This sync path can't await a Dart roundtrip, so it
+         * returns `true` (allow) and defers the decision to the async wrapper.
          */
         override fun shouldShowMessage(messageId: String): Boolean {
-            emit(inAppMessageEventSink, "shouldShowMessage", mapOf("messageId" to messageId))
             return true
         }
     }
@@ -1417,18 +1466,13 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
         }
 
         /**
-         * Veto hook. Like in-app messages, v1 ALWAYS returns `true` and
-         * surfaces the action via the screen event channel as observe-only.
-         * Dart can record the action and emit analytics but cannot block
-         * default SDK handling. Real veto requires the sync_callbacks
-         * MethodChannel handshake (follow-up).
+         * Veto hook. The real host veto runs through the async wrapper
+         * (`asyncOnScreenAction`, registered in onListen) over the sync_callbacks
+         * channel — the native SDK awaits it before performing the action. This
+         * synchronous path can't await a Dart roundtrip, so it returns `true`
+         * (allow) and defers the decision to the async wrapper.
          */
         override fun onScreenAction(screenId: String, action: Map<String, Any?>): Boolean {
-            emit(
-                screenEventSink,
-                "onScreenAction",
-                mapOf("screenId" to screenId, "action" to action),
-            )
             return true
         }
     }

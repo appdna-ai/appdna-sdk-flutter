@@ -37,8 +37,12 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _initSdk() async {
-    // 1. Configure SDK
-    await AppDNA.configure(apiKey: 'YOUR_API_KEY');
+    // 1. Configure SDK. The API key is injected at build time via
+    //    --dart-define=APPDNA_API_KEY=... (D12: no key committed to the example);
+    //    falls back to a placeholder for source readers.
+    const apiKey =
+        String.fromEnvironment('APPDNA_API_KEY', defaultValue: 'YOUR_API_KEY');
+    await AppDNA.configure(apiKey: apiKey);
     setState(() => _status = 'Configured');
 
     // 2. Identify user

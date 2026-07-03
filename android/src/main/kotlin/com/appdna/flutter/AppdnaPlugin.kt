@@ -891,7 +891,11 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                                 "status" to "purchased",
                                 "entitlement" to mapOf(
                                     "productId" to txn.productId,
-                                    "store" to "play",
+                                    // round-15 — match the real getEntitlements() store token
+                                    // (native Entitlement.store defaults to "google_play") so a
+                                    // host reading entitlement.store sees a consistent value from
+                                    // the purchase result and getEntitlements().
+                                    "store" to "google_play",
                                     "status" to "active",
                                     // SPEC-070-C round-14 F-1 — native TransactionInfo carries
                                     // NO expiry, so the synthesized purchase-success entitlement

@@ -893,7 +893,12 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                                     "productId" to txn.productId,
                                     "store" to "play",
                                     "status" to "active",
-                                    "expiresAt" to txn.purchaseDate,
+                                    // SPEC-070-C round-14 F-1 — native TransactionInfo carries
+                                    // NO expiry, so the synthesized purchase-success entitlement
+                                    // must emit null (was stuffing the purchaseDate string into
+                                    // the expiry slot — semantically wrong + diverged from iOS
+                                    // which emits null). Real expiry comes from getEntitlements().
+                                    "expiresAt" to null,
                                     "isTrial" to false,
                                     "offerType" to null,
                                 ),

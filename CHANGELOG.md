@@ -1,3 +1,15 @@
+## 1.0.6
+
+- Full feature parity with the native SDK's expanded surface (wraps iOS 1.0.68 /
+  Android 1.0.40). The Flutter API now covers the complete capability set: host
+  approval callbacks for in-app messages, server-driven screen actions, deep links
+  and promo codes, plus onboarding step and permission hooks; an inline
+  `AppDNAScreenSlot` widget for embedding server-driven screens; brand-accent,
+  runtime-lock, bundle-version and notification-icon reads; session-data
+  get/set/clear; and SDK lifecycle and init delegates. `diagnose()` now returns the
+  health report as a string and reports the Flutter SDK version. All rendering,
+  business logic, networking and storage remain in the native SDK.
+
 ## 1.0.5
 
 - `appdna_feature_parity: 1.0.65` — parity marker advanced to wrap iOS 1.0.65

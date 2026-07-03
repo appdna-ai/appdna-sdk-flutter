@@ -34,7 +34,17 @@ export 'generated/delegates.dart';
 // backwards-compatibility), so we hide it from the public surface here.
 // Once consumers migrate off the enum, the hide clause can be dropped and
 // the enum renamed.
-export 'generated/dtos.dart' hide AppDNAEnvironment;
+//
+// SPEC-070-C — `AppDNAPushPayload` / `AppDNAPushAction` are the CONFIG-wire
+// push shape (snake_case: push_id/image_url + an `actions` ARRAY) modelled on
+// the `push_payload/*` behavioral fixtures. They are NOT the runtime push
+// object: the live `AppDNA.push.setDelegate` path delivers a raw camelCase
+// `Map<String, dynamic>` (`pushId`/`imageUrl`/`data`/single `action:{type,value}`
+// — see push.dart). A host that fed the runtime notification map into
+// `AppDNAPushPayload.fromMap` would get a TypeError, so these config DTOs are
+// hidden from the public surface to remove that trap.
+export 'generated/dtos.dart'
+    hide AppDNAEnvironment, AppDNAPushPayload, AppDNAPushAction;
 
 enum AppDNAEnvironment { production, staging }
 

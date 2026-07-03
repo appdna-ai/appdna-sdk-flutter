@@ -1471,18 +1471,23 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
         }
 
         override fun onScreenDismissed(screenId: String, result: Map<String, Any?>) {
+            // SPEC-070-C — the native SDK emits snake_case result keys; iOS's
+            // forwarder emits camelCase. Canonicalize on camelCase (the rest of
+            // the Flutter bridge) so cross-platform host code reads one shape.
             emit(
                 screenEventSink,
                 "onScreenDismissed",
-                mapOf("screenId" to screenId, "result" to result),
+                mapOf("screenId" to screenId, "result" to camelCaseResultKeys(result)),
             )
         }
 
         override fun onFlowCompleted(flowId: String, result: Map<String, Any?>) {
+            // SPEC-070-C — see onScreenDismissed: normalize native snake_case
+            // result keys to iOS's camelCase.
             emit(
                 screenEventSink,
                 "onFlowCompleted",
-                mapOf("flowId" to flowId, "result" to result),
+                mapOf("flowId" to flowId, "result" to camelCaseResultKeys(result)),
             )
         }
 
@@ -1495,6 +1500,29 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
          */
         override fun onScreenAction(screenId: String, action: Map<String, Any?>): Boolean {
             return true
+        }
+
+        /**
+         * Remap the native ScreenResult/FlowResult top-level snake_case keys to
+         * the camelCase keys iOS emits (matching `screenResultToMap` /
+         * `flowResultToMap` in AppdnaPlugin.swift). Only the known top-level
+         * keys are renamed; values (incl. the arbitrary `responses` map) pass
+         * through untouched so user data keys are never mangled.
+         */
+        private fun camelCaseResultKeys(result: Map<String, Any?>): Map<String, Any?> {
+            val out = LinkedHashMap<String, Any?>(result.size)
+            for ((key, value) in result) {
+                val camel = when (key) {
+                    "screen_id" -> "screenId"
+                    "last_action" -> "lastAction"
+                    "flow_id" -> "flowId"
+                    "last_screen_id" -> "lastScreenId"
+                    "screens_viewed" -> "screensViewed"
+                    else -> key
+                }
+                out[camel] = value
+            }
+            return out
         }
     }
 

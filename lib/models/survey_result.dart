@@ -49,14 +49,17 @@ class SurveyAnswer {
   const SurveyAnswer({required this.questionId, required this.answer});
 
   factory SurveyAnswer.fromMap(Map<String, dynamic> map) {
+    // SPEC-070-C — the survey delegate emits camelCase `questionId` (matching
+    // the native forwarder). Read/write camelCase so this public model stays
+    // consistent with the runtime shape.
     return SurveyAnswer(
-      questionId: map['question_id'] as String? ?? '',
+      questionId: map['questionId'] as String? ?? '',
       answer: map['answer'],
     );
   }
 
   Map<String, dynamic> toMap() => {
-        'question_id': questionId,
+        'questionId': questionId,
         'answer': answer,
       };
 }

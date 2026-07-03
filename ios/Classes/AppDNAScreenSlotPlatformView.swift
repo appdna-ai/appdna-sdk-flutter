@@ -81,6 +81,19 @@ final class AppDNAScreenSlotPlatformView: NSObject, FlutterPlatformView {
         parentVC.addChild(hostingController)
         hostingController.didMove(toParent: parentVC)
     }
+
+    deinit {
+        // SPEC-070-C round-11 — detach from the parent VC on dispose. Once attached
+        // via addChild, the long-lived FlutterViewController's `children` array
+        // retains the hosting controller (+ its SwiftUI state) INDEPENDENTLY of this
+        // FlutterPlatformView's strong ref. Flutter releases the platform view on
+        // widget dispose but has no dispose() hook on iOS (unlike Android), so
+        // without this deinit every slot create/dispose cycle leaks one hosting
+        // controller for the app session. Flutter disposes platform views on the
+        // main thread, so these UIKit calls run on main.
+        hostingController.willMove(toParent: nil)
+        hostingController.removeFromParent()
+    }
 }
 
 /// Container UIView that reports window attachment and resolves the nearest

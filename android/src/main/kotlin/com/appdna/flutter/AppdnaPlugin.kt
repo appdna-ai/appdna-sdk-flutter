@@ -1240,6 +1240,27 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
             )
         }
 
+        // SPEC-070-C §3.6 — observe-only permission-result callback (native
+        // fires this on the onboarding listener after a runtime permission
+        // resolves). Emitted on the observe channel; NOT a sync_callbacks veto.
+        override fun onPermissionResult(
+            flowId: String,
+            stepId: String,
+            permissionType: String,
+            granted: Boolean,
+        ) {
+            emit(
+                onboardingEventSink,
+                "onPermissionResult",
+                mapOf(
+                    "flowId" to flowId,
+                    "stepId" to stepId,
+                    "permissionType" to permissionType,
+                    "granted" to granted,
+                ),
+            )
+        }
+
         // SPEC-070-C Phase 2a — async return-value hooks. Each invokes the Dart
         // host over the sync_callbacks channel, awaits the reply map, converts
         // it to the native return DTO, and falls back to the SDK default on

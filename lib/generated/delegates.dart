@@ -2,7 +2,7 @@
 // Source: src/lib/sdk-delegates/index.ts
 // Generator: scripts/sdk-codegen/emit-delegates.ts
 // Regenerate: pnpm sdk-codegen
-// Last codegen commit: f1033e35139be0976713db9167326590caafab72
+// Last codegen commit: f9e9991f374b737bd8194a252550db6051687a0f
 
 /// Onboarding flow lifecycle observer + SPEC-083/419/421 async return-value hooks (routed via the sync_callbacks channel on Flutter/RN; native-hand-written on iOS, hand-written-Android per D11).
 abstract class AppDNAOnboardingDelegate {
@@ -83,7 +83,8 @@ abstract class AppDNAInAppMessageDelegate {
   @Deprecated('Use onMessageShown instead.')
   void onMessagePresented(String messageId) {}
 
-  void onMessageAction(String messageId, String action) {}
+  /// Message action tapped. data = optional action payload map (native emits this; SPEC-070-C §3.10).
+  void onMessageAction(String messageId, String action, Map<String, dynamic>? data) {}
 
   void onMessageDismissed(String messageId) {}
 

@@ -899,6 +899,18 @@ private class OnboardingDelegateForwarder: NSObject, AppDNAOnboardingDelegate, F
         ])
     }
 
+    // SPEC-070-C §3.6 — observe-only permission-result callback (native fires
+    // this on the onboarding delegate after a runtime permission resolves).
+    // Emitted on the observe channel; NOT a sync_callbacks veto.
+    func onPermissionResult(flowId: String, stepId: String, permissionType: String, granted: Bool) {
+        sendEvent(sink, type: "onPermissionResult", args: [
+            "flowId": flowId,
+            "stepId": stepId,
+            "permissionType": permissionType,
+            "granted": granted
+        ])
+    }
+
     // SPEC-070-C Phase 2a — async return-value hooks. Each invokes the Dart
     // host over the sync_callbacks channel, awaits the reply (a `[String: Any]?`
     // built by the host from its return DTO), converts it into the concrete
@@ -1136,7 +1148,8 @@ private class PaywallDelegateForwarder: NSObject, AppDNAPaywallDelegate, Flutter
     func onPaywallRestoreCompleted(paywallId: String, productIds: [String]) {
         sendEvent(sink, type: "onPaywallRestoreCompleted", args: [
             "paywallId": paywallId,
-            "productIds": productIds
+            // Key must match the generated delegate param + Android emit (SPEC-070-C MED-1).
+            "restoredProductIds": productIds
         ])
     }
 

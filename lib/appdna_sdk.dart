@@ -596,6 +596,14 @@ class AppDNAOnboardingModule {
           (args['atStep'] as num?)?.toInt() ?? 0,
         );
         break;
+      case 'onPermissionResult':
+        d.onPermissionResult(
+          args['flowId'] as String? ?? '',
+          args['stepId'] as String? ?? '',
+          args['permissionType'] as String? ?? '',
+          args['granted'] as bool? ?? false,
+        );
+        break;
       default:
         break;
     }
@@ -831,6 +839,7 @@ class AppDNAInAppMessagesModule {
         d.onMessageAction(
           args['messageId'] as String? ?? '',
           args['action'] as String? ?? '',
+          (args['data'] as Map?)?.cast<String, dynamic>(),
         );
         break;
       case 'onMessageDismissed':

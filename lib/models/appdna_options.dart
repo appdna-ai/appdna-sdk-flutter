@@ -1,3 +1,9 @@
+/// The Flutter AppDNA SDK's own published package version. Reported to the
+/// native SDK so `diagnose()` shows the Flutter version per platform (instead of
+/// the native core version). MUST be kept in sync with `pubspec.yaml` `version:`
+/// (bump both together — see D14 version-bump checklist).
+const String kAppDNAFlutterSdkVersion = '1.0.5';
+
 /// Log verbosity levels.
 enum AppDNALogLevel { none, error, warning, info, debug }
 
@@ -81,5 +87,7 @@ class AppDNAOptions {
         if (notificationIcon != null) 'notificationIcon': notificationIcon,
         // Always tag Flutter traffic (defaults to 'flutter' when not overridden).
         'framework': framework ?? 'flutter',
+        // The wrapper's OWN version so native diagnose() reports it per platform.
+        'frameworkVersion': kAppDNAFlutterSdkVersion,
       };
 }

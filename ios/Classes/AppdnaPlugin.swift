@@ -647,7 +647,9 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             logLevel: logLevel,
             billingProvider: billingProvider,
             // SPEC-070-C D4: wrapper attribution (Dart defaults it to "flutter").
-            framework: dict["framework"] as? String ?? "native"
+            framework: dict["framework"] as? String ?? "native",
+            // SPEC-070-C: wrapper's own version so diagnose() reports per-platform.
+            frameworkVersion: dict["frameworkVersion"] as? String
         )
     }
 

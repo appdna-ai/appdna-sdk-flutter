@@ -1014,7 +1014,9 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
             // (0 = unset → SDK falls back to manifest meta-data then app icon).
             notificationIcon = (map["notificationIcon"] as? Number)?.toInt() ?: 0,
             // SPEC-070-C D4: wrapper attribution (Dart defaults it to "flutter").
-            framework = map["framework"] as? String ?: "native"
+            framework = map["framework"] as? String ?: "native",
+            // SPEC-070-C: wrapper's own version so diagnose() reports per-platform.
+            frameworkVersion = map["frameworkVersion"] as? String
         )
     }
 

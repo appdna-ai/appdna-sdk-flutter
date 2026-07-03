@@ -217,6 +217,8 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             // `delegate:` param (default nil) and would NOT fall back to the
             // module delegate, leaving all 12 host paywall callbacks dead.
             // The module present() resolves the top view controller itself.
+            // Bind the forwarder so host hooks/vetoes are live even if the app never subscribed to this stream (same fix as onboarding + presentPaywallByPlacement).
+            if let fwd = paywallForwarder { AppDNA.paywall.setDelegate(fwd) }
             AppDNA.paywall.present(id, context: context)
             result(nil)
 
@@ -233,6 +235,18 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             // follow-up affecting native hosts equally; the bridge forwards it
             // faithfully so it flows the moment native threads it.
             let onbCtx = parseOnboardingContext(args["context"] as? [String: Any])
+            // Bind the delegate forwarder for the whole flow even if the Dart host
+            // never subscribed to the onboarding event stream. The sync_callbacks
+            // hooks (esp. onBeforeStepAdvance) must be live whenever onboarding is
+            // presented — auth actions (email_login / login / register / OTP …) route
+            // through that hook, and the native SDK deliberately STAYS on an auth step
+            // when no delegate is bound (handleStepCompleted → requiresDelegate). Before
+            // this, an email/social-login step never advanced on Flutter (delegate only
+            // got bound in onListen) while it advanced on native. onListen re-sets the
+            // same forwarder if the host subscribes; onCancel clears it on unsubscribe.
+            if let fwd = onboardingForwarder {
+                AppDNA.onboarding.setDelegate(fwd)
+            }
             AppDNA.onboarding.present(flowId: flowId, context: onbCtx)
             result(nil)
 
@@ -361,6 +375,8 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         // Surveys module.
         case "presentSurvey":
             let surveyId = args["surveyId"] as! String
+            // Bind the forwarder so host hooks/vetoes are live even if the app never subscribed to this stream (same fix as onboarding + presentPaywallByPlacement).
+            if let fwd = surveyForwarder { AppDNA.surveys.setDelegate(fwd) }
             AppDNA.surveys.present(surveyId)
             result(nil)
 
@@ -378,11 +394,15 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         // showScreen/showFlow and is intentionally dropped (documented no-op).
         case "showScreen":
             let screenId = args["screenId"] as! String
+            // Bind the forwarder so host hooks/vetoes are live even if the app never subscribed to this stream (same fix as onboarding + presentPaywallByPlacement).
+            if let fwd = screenForwarder { AppDNA.screenDelegate = fwd }
             AppDNA.showScreen(screenId)
             result(nil)
 
         case "showScreenFlow":
             let flowId = args["flowId"] as! String
+            // Bind the forwarder so host hooks/vetoes are live even if the app never subscribed to this stream (same fix as onboarding + presentPaywallByPlacement).
+            if let fwd = screenForwarder { AppDNA.screenDelegate = fwd }
             AppDNA.showFlow(flowId)
             result(nil)
 
@@ -497,6 +517,8 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             // SPEC-070-C HIGH-2 — route through the MODULE present() (which
             // resolves the top view controller + forwards the stored delegate).
             // The static `AppDNA.showPaywall(_:)` presents with delegate:nil.
+            // Bind the forwarder so host hooks/vetoes are live even if the app never subscribed to this stream (same fix as onboarding + presentPaywallByPlacement).
+            if let fwd = paywallForwarder { AppDNA.paywall.setDelegate(fwd) }
             AppDNA.paywall.present(args["id"] as! String)
             result(nil)
 
@@ -506,6 +528,8 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
 
         // MARK: - SPEC-070-C §3.9 surveys
         case "showSurvey":
+            // Bind the forwarder so host hooks/vetoes are live even if the app never subscribed to this stream (same fix as onboarding + presentPaywallByPlacement).
+            if let fwd = surveyForwarder { AppDNA.surveys.setDelegate(fwd) }
             AppDNA.showSurvey(args["id"] as! String)
             result(nil)
 

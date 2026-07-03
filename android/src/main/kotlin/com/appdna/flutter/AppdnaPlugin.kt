@@ -430,6 +430,30 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
         scope.cancel()
     }
 
+    // Bind a delegate forwarder before presenting so host hooks/vetoes are live even
+    // if the app never subscribed to that module's event stream. Critical for the
+    // onboarding onBeforeStepAdvance hook that auth actions (email_login / login /
+    // register / OTP) route through — the native SDK STAYS on an auth step when no
+    // delegate is bound. Forwarders are inner classes whose sync hooks flow through
+    // the plugin-level sync_callbacks channel, so one created here works without an
+    // event sink (observe events are simply dropped). onCancel still clears them.
+    private fun ensureOnboardingDelegate() {
+        if (onboardingForwarder == null) onboardingForwarder = OnboardingDelegateForwarder()
+        AppDNA.onboarding.setDelegate(onboardingForwarder)
+    }
+    private fun ensurePaywallDelegate() {
+        if (paywallForwarder == null) paywallForwarder = PaywallDelegateForwarder()
+        AppDNA.paywall.setDelegate(paywallForwarder)
+    }
+    private fun ensureSurveyDelegate() {
+        if (surveyForwarder == null) surveyForwarder = SurveyDelegateForwarder()
+        AppDNA.surveys.setDelegate(surveyForwarder)
+    }
+    private fun ensureScreenDelegate() {
+        if (screenForwarder == null) screenForwarder = ScreenDelegateForwarder()
+        AppDNA.screenDelegate = screenForwarder
+    }
+
     override fun onMethodCall(call: MethodCall, result: Result) {
         when (call.method) {
             "configure" -> {
@@ -476,6 +500,7 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                 // the events/paywall stream's onListen) is forwarded. The static
                 // `AppDNA.presentPaywall(activity, id, context)` defaults
                 // listener=null and would leave all host paywall callbacks dead.
+                ensurePaywallDelegate()
                 activity?.let { AppDNA.paywall.present(it, id, paywallContext) }
                 result.success(null)
             }
@@ -498,6 +523,7 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                         experimentOverrides = m["experimentOverrides"] as? Map<String, String>
                     )
                 }
+                ensureOnboardingDelegate()
                 activity?.let { AppDNA.onboarding.present(it, flowId, onbCtx) }
                 result.success(null)
             }
@@ -635,6 +661,7 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
             // Surveys module.
             "presentSurvey" -> {
                 val surveyId = call.argument<String>("surveyId")!!
+                ensureSurveyDelegate()
                 AppDNA.surveys.present(surveyId)
                 result.success(null)
             }
@@ -653,11 +680,13 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
             // intentionally dropped (documented no-op).
             "showScreen" -> {
                 val screenId = call.argument<String>("screenId")!!
+                ensureScreenDelegate()
                 AppDNA.showScreen(screenId)
                 result.success(null)
             }
             "showScreenFlow" -> {
                 val flowId = call.argument<String>("flowId")!!
+                ensureScreenDelegate()
                 AppDNA.showFlow(flowId)
                 result.success(null)
             }
@@ -796,6 +825,7 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                 // `paywallForwarder` is set to the live forwarder only while the
                 // host is subscribed to the events/paywall stream (null otherwise),
                 // so this exactly mirrors the module's stored-listener behavior.
+                ensurePaywallDelegate()
                 activity?.let { AppDNA.presentPaywallByPlacement(it, placement, paywallContext, paywallForwarder) }
                 result.success(null)
             }
@@ -804,6 +834,7 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                 // stored paywall listener is forwarded. The static
                 // `AppDNA.showPaywall(id)` routes through presentPaywall with
                 // listener=null.
+                ensurePaywallDelegate()
                 activity?.let { AppDNA.paywall.present(it, call.argument<String>("id")!!) }
                 result.success(null)
             }
@@ -814,6 +845,7 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
 
             // MARK: SPEC-070-C §3.9 surveys
             "showSurvey" -> {
+                ensureSurveyDelegate()
                 AppDNA.showSurvey(call.argument<String>("id")!!)
                 result.success(null)
             }

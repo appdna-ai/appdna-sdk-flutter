@@ -411,6 +411,16 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
         runCatching { AppDNA.deepLinks.setDelegate(null) }
         runCatching { AppDNA.screenDelegate = null }
         runCatching { AppDNA.setInitDelegate(null) }
+        // SPEC-070-C round-10 FIX-1 — also clear the 4 async registrations installed
+        // by the stream onListen blocks. Flutter doesn't guarantee onCancel fires at
+        // engine detach, so on a pure engine-destroy these closures (which capture the
+        // plugin's invokeDart → strong `this`) would stay on the native AppDNA singleton
+        // → leak + a 5s invokeMethod-on-dead-messenger stall per subsequent native-driven
+        // action (add-to-app / engine-recreation hosts).
+        runCatching { AppDNA.inAppMessages.setAsyncShouldShowMessage(null) }
+        runCatching { AppDNA.deepLinks.asyncShouldOpen = null }
+        runCatching { AppDNA.asyncOnScreenAction = null }
+        runCatching { AppDNA.setLifecycleDelegate(null) }
         scope.cancel()
     }
 

@@ -526,21 +526,21 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
 
     // MARK: - SPEC-070-C §3.12 — ScreenResult -> channel map for previewScreen
     // (M4). Same shape the ScreenDelegateForwarder emits on `events/screen`.
-    fileprivate static func screenResultToMap(_ r: ScreenResult) -> [String: Any?] {
-        return [
+    fileprivate static func screenResultToMap(_ r: ScreenResult) -> [String: Any] {
+        return ([
             "screenId": r.screenId,
             "dismissed": r.dismissed,
             "responses": r.responses,
             "lastAction": r.lastAction,
             "duration_ms": r.duration_ms,
             "error": r.error?.rawValue
-        ]
+        ] as [String: Any?]).mapValues { $0 ?? NSNull() }
     }
 
     // MARK: - SPEC-070-C §3.13 — LocationData -> channel map (snake_case keys
     // matching the Dart `LocationData.fromMap` contract).
-    private static func locationDataToMap(_ l: LocationData) -> [String: Any?] {
-        return [
+    private static func locationDataToMap(_ l: LocationData) -> [String: Any] {
+        return ([
             "formatted_address": l.formatted_address,
             "city": l.city,
             "state": l.state,
@@ -553,7 +553,7 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             "timezone_offset": l.timezone_offset,
             "postal_code": l.postal_code,
             "raw_query": l.raw_query
-        ]
+        ] as [String: Any?]).mapValues { $0 ?? NSNull() }
     }
 
     // MARK: - Helpers
@@ -1578,19 +1578,19 @@ private class ScreenDelegateForwarder: NSObject, AppDNAScreenDelegate, FlutterSt
         return true
     }
 
-    private func screenResultToMap(_ r: ScreenResult) -> [String: Any?] {
-        return [
+    private func screenResultToMap(_ r: ScreenResult) -> [String: Any] {
+        return ([
             "screenId": r.screenId,
             "dismissed": r.dismissed,
             "responses": r.responses,
             "lastAction": r.lastAction,
             "duration_ms": r.duration_ms,
             "error": r.error?.rawValue
-        ]
+        ] as [String: Any?]).mapValues { $0 ?? NSNull() }
     }
 
-    private func flowResultToMap(_ r: FlowResult) -> [String: Any?] {
-        return [
+    private func flowResultToMap(_ r: FlowResult) -> [String: Any] {
+        return ([
             "flowId": r.flowId,
             "completed": r.completed,
             "lastScreenId": r.lastScreenId,
@@ -1598,7 +1598,7 @@ private class ScreenDelegateForwarder: NSObject, AppDNAScreenDelegate, FlutterSt
             "screensViewed": r.screensViewed,
             "duration_ms": r.duration_ms,
             "error": r.error?.rawValue
-        ]
+        ] as [String: Any?]).mapValues { $0 ?? NSNull() }
     }
 
     /// Encode a `SectionAction` as `{type, value?}` matching the shared

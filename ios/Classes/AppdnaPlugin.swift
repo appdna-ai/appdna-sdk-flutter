@@ -214,7 +214,14 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             // stored OnboardingDelegateForwarder is the active delegate (the
             // static top-level `presentOnboarding(flowId:)` defaults delegate:nil
             // and would leave all observe + sync_callbacks hooks dead).
-            AppDNA.onboarding.present(flowId: flowId)
+            // MEDIUM-1 — forward the host's OnboardingContext (attribution +
+            // experimentOverrides). The native module present() currently drops
+            // this param (the static presentOnboarding has no context arg), so
+            // onboarding experiment-override APPLICATION is a pending native-SDK
+            // follow-up affecting native hosts equally; the bridge forwards it
+            // faithfully so it flows the moment native threads it.
+            let onbCtx = parseOnboardingContext(args["context"] as? [String: Any])
+            AppDNA.onboarding.present(flowId: flowId, context: onbCtx)
             result(nil)
 
         case "getRemoteConfig":
@@ -607,6 +614,20 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             placement: placement,
             experiment: dict["experiment"] as? String,
             variant: dict["variant"] as? String
+        )
+    }
+
+    /// SPEC-070-C §3.6 — build a native OnboardingContext from the Dart map
+    /// (source/campaign/referrer/userProperties/experimentOverrides). Keys match
+    /// `OnboardingContext.toMap()` on the Dart side.
+    private func parseOnboardingContext(_ dict: [String: Any]?) -> OnboardingContext? {
+        guard let dict = dict else { return nil }
+        return OnboardingContext(
+            source: dict["source"] as? String,
+            campaign: dict["campaign"] as? String,
+            referrer: dict["referrer"] as? String,
+            userProperties: dict["userProperties"] as? [String: Any],
+            experimentOverrides: dict["experimentOverrides"] as? [String: String]
         )
     }
 

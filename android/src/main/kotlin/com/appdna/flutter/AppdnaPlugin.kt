@@ -10,6 +10,7 @@ import ai.appdna.sdk.AppDNABillingDelegate
 import ai.appdna.sdk.AppDNAInAppMessageDelegate
 import ai.appdna.sdk.AppDNAInitDelegate
 import ai.appdna.sdk.AppDNAOptions
+import ai.appdna.sdk.OnboardingContext
 import ai.appdna.sdk.ForcedTheme
 import ai.appdna.sdk.AppDNAPushDelegate
 import ai.appdna.sdk.AppDNADeepLinkDelegate
@@ -445,7 +446,20 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                 // stored OnboardingDelegateForwarder is forwarded (the static
                 // `presentOnboarding(activity, flowId)` defaults listener=null,
                 // leaving all observe + sync_callbacks hooks dead).
-                activity?.let { AppDNA.onboarding.present(it, flowId) }
+                // MEDIUM-1 — forward the host's OnboardingContext. NOTE: the native
+                // module present() currently drops it (pre-existing native gap
+                // affecting native hosts equally); the bridge forwards it faithfully.
+                @Suppress("UNCHECKED_CAST")
+                val onbCtx = call.argument<Map<String, Any?>>("context")?.let { m ->
+                    OnboardingContext(
+                        source = m["source"] as? String,
+                        campaign = m["campaign"] as? String,
+                        referrer = m["referrer"] as? String,
+                        userProperties = m["userProperties"] as? Map<String, Any>,
+                        experimentOverrides = m["experimentOverrides"] as? Map<String, String>
+                    )
+                }
+                activity?.let { AppDNA.onboarding.present(it, flowId, onbCtx) }
                 result.success(null)
             }
             "getRemoteConfig" -> {

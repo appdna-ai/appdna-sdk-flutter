@@ -61,7 +61,11 @@
         { "method": "registerForPush", "ios": true, "android": true, "$note": "Android routes to push.requestPermission" },
         { "method": "handlePushTap", "ios": true, "android": true, "$note": "iOS §3.14 no-op (returns false)" },
         { "method": "onNewPushToken", "ios": true, "android": true, "$note": "iOS §3.14 no-op" },
-        { "method": "getLocationData", "ios": true, "android": true }
+        { "method": "getLocationData", "ios": true, "android": true },
+        { "method": "getBrandAccentHex", "ios": true, "android": true },
+        { "method": "getRuntimeLock", "ios": true, "android": true },
+        { "method": "getCurrentBundleVersion", "ios": true, "android": true, "$note": "iOS currentBundleVersion is internal → returns null" },
+        { "method": "getNotificationIcon", "ios": true, "android": true, "$note": "iOS §3.14 no-op (returns null)" }
       ]
     },
     "com.appdna.sdk/billing": {

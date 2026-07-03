@@ -710,6 +710,28 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                 val err = AppDNA.lastInitError
                 result.success(err?.let { throwableToMap(it) })
             }
+            // §3.1 brand accent hex — read-only public on BOTH platforms.
+            "getBrandAccentHex" -> {
+                result.success(AppDNA.brandAccentHex)
+            }
+            // §3.1 runtime lock — pollable read. Native `Pair<String,String>` is
+            // `(reason, locked_at)` → the same `{reason, locked_at}` map iOS emits.
+            "getRuntimeLock" -> {
+                val lock = AppDNA.runtimeLock
+                result.success(
+                    lock?.let { mapOf("reason" to it.first, "locked_at" to it.second) },
+                )
+            }
+            // §3.1 Android-only current bundle version read (iOS var is internal
+            // → the iOS plugin returns null).
+            "getCurrentBundleVersion" -> {
+                result.success(AppDNA.currentBundleVersion)
+            }
+            // §3.1 Android-only notification-icon read (iOS has no such field
+            // → the iOS plugin returns null). `0` means unset.
+            "getNotificationIcon" -> {
+                result.success(AppDNA.notificationIcon)
+            }
 
             // MARK: SPEC-070-C §3.2 events
             "notifyScreenAppeared" -> {
@@ -949,6 +971,9 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
             batchSize = (map["batchSize"] as? Number)?.toInt() ?: 20,
             configTTL = (map["configTTL"] as? Number)?.toLong() ?: 300L,
             logLevel = logLevel,
+            // SPEC-070-C §3.1 — Android-only notification small-icon drawable id
+            // (0 = unset → SDK falls back to manifest meta-data then app icon).
+            notificationIcon = (map["notificationIcon"] as? Number)?.toInt() ?: 0,
             // SPEC-070-C D4: wrapper attribution (Dart defaults it to "flutter").
             framework = map["framework"] as? String ?: "native"
         )

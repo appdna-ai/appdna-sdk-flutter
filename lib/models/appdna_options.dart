@@ -48,6 +48,15 @@ class AppDNAOptions {
   /// Billing provider for paywall purchases (iOS only). Default: storeKit2.
   final AppDNABillingProvider? billingProvider;
 
+  /// Notification small-icon drawable resource id used for AppDNA push
+  /// notifications (**Android only**; iOS ignores it — §3.14). `0`/unset falls
+  /// back to manifest meta-data then the app icon.
+  ///
+  /// Caveat: this is an Android `R.drawable.*` resource id (an `int`) — a
+  /// pure-Dart host has no such id, so it is only useful when a native Android
+  /// layer supplies it. Bridged for full §3.1 surface parity.
+  final int? notificationIcon;
+
   /// SPEC-070-C D4 — SDK-wrapper attribution tagged on every event's device
   /// context (→ BigQuery `framework` column). The Flutter SDK always reports
   /// `flutter`; this override exists only for special embedding scenarios.
@@ -59,6 +68,7 @@ class AppDNAOptions {
     this.configTTL,
     this.logLevel,
     this.billingProvider,
+    this.notificationIcon,
     this.framework,
   });
 
@@ -68,6 +78,7 @@ class AppDNAOptions {
         if (configTTL != null) 'configTTL': configTTL,
         if (logLevel != null) 'logLevel': logLevel!.name,
         if (billingProvider != null) 'billingProvider': billingProvider!.toJson(),
+        if (notificationIcon != null) 'notificationIcon': notificationIcon,
         // Always tag Flutter traffic (defaults to 'flutter' when not overridden).
         'framework': framework ?? 'flutter',
       };

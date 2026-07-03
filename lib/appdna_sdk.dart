@@ -415,6 +415,45 @@ class AppDNA {
     return data == null ? null : Map<String, dynamic>.from(data);
   }
 
+  /// The app's brand accent colour as a hex string (e.g. `#6366F1`), or `null`
+  /// until the brand config has loaded. Read-only value on BOTH platforms
+  /// (iOS `AppDNA.brandAccentHex` / Android `AppDNA.brandAccentHex`) — §3.1.
+  static Future<String?> brandAccentHex() async {
+    return await _channel.invokeMethod<String>('getBrandAccentHex');
+  }
+
+  /// The current backend-driven SDK runtime lock as a `{reason, locked_at}`
+  /// map, or `null` when the SDK is active (not locked). Pollable read on BOTH
+  /// platforms (iOS `BootstrapRuntimeLock {reason, locked_at}` / Android
+  /// `Pair<String,String>` = `(reason, locked_at)`) — §3.1. This is the
+  /// synchronous pollable read; the transition-callback equivalent is
+  /// [setLifecycleDelegate]'s `onSdkRuntimeLocked` — both exist by design.
+  static Future<Map<String, dynamic>?> runtimeLock() async {
+    final data = await _channel.invokeMethod<Map>('getRuntimeLock');
+    return data == null ? null : Map<String, dynamic>.from(data);
+  }
+
+  /// The current config bundle version reported on events, or `null` if unknown.
+  /// **Android-only** — returns `null` on iOS, whose `currentBundleVersion` is
+  /// declared `internal` and is therefore not accessible cross-module from the
+  /// plugin (§3.1 / §3.14).
+  static Future<int?> currentBundleVersion() async {
+    return await _channel.invokeMethod<int>('getCurrentBundleVersion');
+  }
+
+  /// The host-supplied notification small-icon drawable resource id (`0` means
+  /// unset → the SDK falls back to manifest meta-data then the app icon), or
+  /// `null` on iOS. **Android-only** — returns `null` on iOS (§3.14).
+  ///
+  /// Practical caveat: the paired [AppDNAOptions.notificationIcon] setter takes
+  /// an Android drawable resource id (an `int` from `R.drawable.*`), which a
+  /// pure-Dart host generally cannot produce — it is only meaningful when a
+  /// native Android layer supplies the id. The option pass-through and this
+  /// read are bridged regardless, to keep the full §3.1 surface (not dropped).
+  static Future<int?> notificationIcon() async {
+    return await _channel.invokeMethod<int>('getNotificationIcon');
+  }
+
   /// SPEC-404 — register a delegate notified when the backend locks or unlocks
   /// the SDK runtime (e.g. billing overdue, org cancelled). Fires once per
   /// state transition on BOTH platforms. Pass `null` to clear the current

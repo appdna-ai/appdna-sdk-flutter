@@ -433,6 +433,25 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         case "setForcedTheme", "getForcedTheme", "getLastInitError":
             result(nil)
 
+        // §3.1 brand accent hex — read-only public on BOTH platforms.
+        case "getBrandAccentHex":
+            result(AppDNA.brandAccentHex)
+
+        // §3.1 runtime lock — pollable read. `BootstrapRuntimeLock {reason,
+        // locked_at}` → the same `{reason, locked_at}` map Android emits.
+        case "getRuntimeLock":
+            if let lock = AppDNA.runtimeLock {
+                result(["reason": lock.reason, "locked_at": lock.locked_at])
+            } else {
+                result(nil)
+            }
+
+        // §3.1 iOS no-ops: `currentBundleVersion` is `internal` on iOS (not
+        // accessible cross-module from the plugin) and `notificationIcon` is an
+        // Android-only option/read → both return nil (§3.1 / §3.14).
+        case "getCurrentBundleVersion", "getNotificationIcon":
+            result(nil)
+
         // §3.14 iOS no-op (Android-only zero-code screen attribution).
         case "notifyScreenAppeared":
             result(nil)

@@ -32,6 +32,8 @@ class _HomePageState extends State<HomePage> {
       String.fromEnvironment('APPDNA_ONBOARDING_ID', defaultValue: 'default');
   static const _paywallId =
       String.fromEnvironment('APPDNA_PAYWALL_ID', defaultValue: 'default');
+  static const _paywallId2 =
+      String.fromEnvironment('APPDNA_PAYWALL_ID_2', defaultValue: 'default');
   static const _surveyId =
       String.fromEnvironment('APPDNA_SURVEY_ID', defaultValue: 'default');
   static const _messageEvent =
@@ -56,8 +58,12 @@ class _HomePageState extends State<HomePage> {
     await AppDNA.configure(apiKey: apiKey);
     setState(() => _status = 'Configured');
 
-    // 2. Identify user
-    await AppDNA.identify('user_123', traits: {'email': 'demo@example.com'});
+    // 2. Identify user. The user id can be overridden at build time via
+    //    --dart-define=APPDNA_USER_ID=... (used to exercise per-user-frequency
+    //    surfaces like in-app messages with a fresh identity).
+    const userId =
+        String.fromEnvironment('APPDNA_USER_ID', defaultValue: 'user_123');
+    await AppDNA.identify(userId, traits: {'email': 'demo@example.com'});
     setState(() => _status = 'Identified');
 
     // 3. Check for deferred deep link (first launch)
@@ -101,6 +107,14 @@ class _HomePageState extends State<HomePage> {
             onPressed: () => AppDNA.presentPaywall(_paywallId),
             icon: const Icon(Icons.shopping_cart),
             label: const Text('Present Paywall'),
+          ),
+          const SizedBox(height: 12),
+
+          // Present a second paywall (e.g. a winback variant).
+          FilledButton.icon(
+            onPressed: () => AppDNA.presentPaywall(_paywallId2),
+            icon: const Icon(Icons.card_giftcard),
+            label: const Text('Present Paywall 2'),
           ),
           const SizedBox(height: 12),
 

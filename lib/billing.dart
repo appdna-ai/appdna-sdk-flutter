@@ -100,6 +100,9 @@ class AppDNABilling {
       EventChannel('com.appdna.sdk/events/billing');
   AppDNABillingDelegate? _delegate;
   StreamSubscription? _delegateSub;
+  // SPEC-070-C round-12 — store the callback-style entitlements subscription so a
+  // re-registration cancels the prior one instead of stacking permanent listeners.
+  StreamSubscription? _entitlementsCallbackSub;
 
   /// Set a delegate to receive billing lifecycle callbacks (purchases,
   /// failures, entitlement changes, restores, billing-unavailable).
@@ -163,9 +166,8 @@ class AppDNABilling {
   /// Register a callback for entitlement changes.
   /// Alternative to the [onEntitlementsChanged] stream for delegate-style usage.
   void onEntitlementsChangedCallback(void Function(List<Entitlement>) callback) {
-    onEntitlementsChanged.listen((entitlements) {
-      callback(entitlements);
-    });
+    _entitlementsCallbackSub?.cancel();
+    _entitlementsCallbackSub = onEntitlementsChanged.listen(callback);
   }
 
   /// Purchase a product by its store product ID.

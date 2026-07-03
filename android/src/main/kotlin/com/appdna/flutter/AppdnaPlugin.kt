@@ -104,6 +104,9 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
     // (native `onChanged` adds a listener each call with no removal API).
     private var remoteConfigChangeRegistered = false
     private var featuresChangeRegistered = false
+    // SPEC-070-C round-12 — same append-only-observer guard for the 2 entitlement streams.
+    private var billingEntitlementRegistered = false
+    private var webEntitlementRegistered = false
 
     // Forwarder instances we install on the native modules. Kept as properties
     // so onCancel() can call setDelegate(null) cleanly on stream tear-down.
@@ -132,9 +135,12 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
         entitlementEventChannel.setStreamHandler(object : EventChannel.StreamHandler {
             override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                 entitlementEventSink = events
-                AppDNA.billing.onEntitlementsChanged { entitlements ->
-                    val maps = entitlements.map { it.toMap() }
-                    entitlementEventSink?.success(maps)
+                if (!billingEntitlementRegistered) {
+                    billingEntitlementRegistered = true
+                    AppDNA.billing.onEntitlementsChanged { entitlements ->
+                        val maps = entitlements.map { it.toMap() }
+                        entitlementEventSink?.success(maps)
+                    }
                 }
             }
             override fun onCancel(arguments: Any?) {
@@ -1000,8 +1006,11 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
     // EventChannel.StreamHandler
     override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
         eventSink = events
-        AppDNA.onWebEntitlementChanged { entitlement ->
-            eventSink?.success(entitlement?.toMap())
+        if (!webEntitlementRegistered) {
+            webEntitlementRegistered = true
+            AppDNA.onWebEntitlementChanged { entitlement ->
+                eventSink?.success(entitlement?.toMap())
+            }
         }
     }
     override fun onCancel(arguments: Any?) {

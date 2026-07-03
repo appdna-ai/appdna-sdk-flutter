@@ -765,10 +765,17 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
 
     // MARK: - FlutterStreamHandler (web entitlement events)
 
+    private var didRegisterWebEntitlement = false
     public func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
         self.eventSink = events
-        AppDNA.onWebEntitlementChanged { [weak self] entitlement in
-            self?.eventSink?(entitlement?.toMap())
+        // SPEC-070-C round-12 — onWebEntitlementChanged APPENDS (no removal API), so
+        // register ONCE and only swap the sink on re-listen; else each listen→cancel→
+        // listen stacks an observer → duplicate emissions + unbounded growth.
+        if !didRegisterWebEntitlement {
+            didRegisterWebEntitlement = true
+            AppDNA.onWebEntitlementChanged { [weak self] entitlement in
+                self?.eventSink?(entitlement?.toMap())
+            }
         }
         return nil
     }
@@ -842,6 +849,7 @@ private class FeaturesChangeStreamHandler: NSObject, FlutterStreamHandler {
 
 private class BillingEntitlementStreamHandler: NSObject, FlutterStreamHandler {
     weak var plugin: AppdnaPlugin?
+    private var didRegister = false
 
     init(plugin: AppdnaPlugin) {
         self.plugin = plugin
@@ -849,9 +857,14 @@ private class BillingEntitlementStreamHandler: NSObject, FlutterStreamHandler {
 
     func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
         plugin?.entitlementEventSink = events
-        AppDNA.billing.onEntitlementsChanged { [weak self] entitlements in
-            let maps = entitlements.map { $0.toFlutterMap() }
-            self?.plugin?.entitlementEventSink?(maps)
+        // SPEC-070-C round-12 — onEntitlementsChanged APPENDS (no removal API): register
+        // ONCE, swap the sink on re-listen (else duplicate emissions + unbounded growth).
+        if !didRegister {
+            didRegister = true
+            AppDNA.billing.onEntitlementsChanged { [weak self] entitlements in
+                let maps = entitlements.map { $0.toFlutterMap() }
+                self?.plugin?.entitlementEventSink?(maps)
+            }
         }
         return nil
     }

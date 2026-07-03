@@ -24,6 +24,8 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     private var billingDelegateForwarder: BillingDelegateForwarder?
     private var deepLinkForwarder: DeepLinkDelegateForwarder?
     private var screenForwarder: ScreenDelegateForwarder?
+    // SPEC-404 — held strongly here; `AppDNA.lifecycleDelegate` is `weak`.
+    private var lifecycleForwarder: LifecycleDelegateForwarder?
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(
@@ -129,6 +131,16 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         screenForwarder.invoker = syncInvoker
         instance.screenForwarder = screenForwarder
         screenChannel.setStreamHandler(screenForwarder)
+
+        // SPEC-404 — runtime-lock lifecycle delegate stream (BOTH platforms).
+        // onListen assigns the forwarder to the native `weak` lifecycleDelegate;
+        // the plugin holds the only strong ref so it isn't deallocated.
+        let lifecycleChannel = FlutterEventChannel(
+            name: "com.appdna.sdk/events/lifecycle", binaryMessenger: messenger
+        )
+        let lifecycleForwarder = LifecycleDelegateForwarder()
+        instance.lifecycleForwarder = lifecycleForwarder
+        lifecycleChannel.setStreamHandler(lifecycleForwarder)
 
         // SPEC-070-C Phase 2b — register the AppDNAScreenSlot PlatformView
         // factory. The Dart `AppDNAScreenSlot` widget embeds a `UiKitView` with
@@ -1203,7 +1215,10 @@ private class PaywallDelegateForwarder: NSObject, AppDNAPaywallDelegate, Flutter
         return [
             "transactionId": t.transactionId,
             "productId": t.productId,
-            "purchaseDate": t.purchaseDate.timeIntervalSince1970 * 1000,
+            // SPEC-070-C MED-2 — cross-platform-consistent type: emit epoch-millis
+            // as a String (native iOS purchaseDate is a Date; Android's
+            // TransactionInfo.purchaseDate is already an epoch-millis String).
+            "purchaseDate": String(Int64((t.purchaseDate.timeIntervalSince1970 * 1000).rounded())),
             "environment": t.environment
         ]
     }
@@ -1377,7 +1392,9 @@ private class BillingDelegateForwarder: NSObject, AppDNABillingDelegate, Flutter
             "transaction": [
                 "transactionId": transaction.transactionId,
                 "productId": transaction.productId,
-                "purchaseDate": transaction.purchaseDate.timeIntervalSince1970 * 1000,
+                // SPEC-070-C MED-2 — epoch-millis String, matching Android's
+                // String-typed TransactionInfo.purchaseDate (see transactionInfoToMap).
+                "purchaseDate": String(Int64((transaction.purchaseDate.timeIntervalSince1970 * 1000).rounded())),
                 "environment": transaction.environment
             ]
         ])
@@ -1405,6 +1422,36 @@ private class BillingDelegateForwarder: NSObject, AppDNABillingDelegate, Flutter
         sendEvent(sink, type: "onRestoreCompleted", args: [
             "restoredProductIds": restoredProducts
         ])
+    }
+}
+
+// MARK: Lifecycle (SPEC-404 runtime lock)
+
+private class LifecycleDelegateForwarder: NSObject, AppDNALifecycleDelegate, FlutterStreamHandler {
+    private var sink: FlutterEventSink?
+
+    func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+        self.sink = events
+        AppDNA.lifecycleDelegate = self
+        return nil
+    }
+
+    func onCancel(withArguments arguments: Any?) -> FlutterError? {
+        AppDNA.lifecycleDelegate = nil
+        self.sink = nil
+        return nil
+    }
+
+    // lockedAt is the native ISO-8601 String verbatim — same type Android emits.
+    func onSdkRuntimeLocked(reason: String, lockedAt: String) {
+        sendEvent(sink, type: "onSdkRuntimeLocked", args: [
+            "reason": reason,
+            "lockedAt": lockedAt
+        ])
+    }
+
+    func onSdkRuntimeUnlocked() {
+        sendEvent(sink, type: "onSdkRuntimeUnlocked", args: [:])
     }
 }
 

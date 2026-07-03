@@ -32,6 +32,7 @@ import ai.appdna.sdk.paywalls.AppDNAPaywallDelegate
 import ai.appdna.sdk.paywalls.PaywallAction
 import ai.appdna.sdk.paywalls.PaywallContext
 import ai.appdna.sdk.screens.AppDNAScreenDelegate
+import ai.appdna.sdk.generated.AppDNALifecycleDelegate
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -82,6 +83,7 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
     private lateinit var deepLinkEventChannel: EventChannel
     private lateinit var screenEventChannel: EventChannel
     private lateinit var initEventChannel: EventChannel
+    private lateinit var lifecycleEventChannel: EventChannel
     private lateinit var remoteConfigChangeChannel: EventChannel
     private lateinit var featuresChangeChannel: EventChannel
     private lateinit var syncCallbackChannel: MethodChannel
@@ -95,6 +97,7 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
     private var deepLinkEventSink: EventChannel.EventSink? = null
     private var screenEventSink: EventChannel.EventSink? = null
     private var initEventSink: EventChannel.EventSink? = null
+    private var lifecycleEventSink: EventChannel.EventSink? = null
     private var remoteConfigChangeSink: EventChannel.EventSink? = null
     private var featuresChangeSink: EventChannel.EventSink? = null
     // M1 — guard so the native onChanged observer is registered once per stream
@@ -113,6 +116,7 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
     private var deepLinkForwarder: DeepLinkDelegateForwarder? = null
     private var screenForwarder: ScreenDelegateForwarder? = null
     private var initForwarder: InitDelegateForwarder? = null
+    private var lifecycleForwarder: LifecycleDelegateForwarder? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         context = binding.applicationContext
@@ -308,6 +312,24 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
             }
         })
 
+        // SPEC-404 — runtime-lock lifecycle delegate stream (BOTH platforms).
+        // onListen wires an AppDNALifecycleDelegate forwarder into the native
+        // SDK via setLifecycleDelegate(); onCancel clears it.
+        lifecycleEventChannel = EventChannel(binding.binaryMessenger, "com.appdna.sdk/events/lifecycle")
+        lifecycleEventChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                lifecycleEventSink = events
+                val fwd = LifecycleDelegateForwarder()
+                lifecycleForwarder = fwd
+                AppDNA.setLifecycleDelegate(fwd)
+            }
+            override fun onCancel(arguments: Any?) {
+                AppDNA.setLifecycleDelegate(null)
+                lifecycleForwarder = null
+                lifecycleEventSink = null
+            }
+        })
+
         // SPEC-070-C M1 — remote-config / feature-flag change streams. On
         // onListen each wires the native `onChanged` observer (once) and emits a
         // bare signal; the Dart side ignores the payload and fires its callback.
@@ -376,6 +398,7 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
         deepLinkEventChannel.setStreamHandler(null)
         screenEventChannel.setStreamHandler(null)
         initEventChannel.setStreamHandler(null)
+        lifecycleEventChannel.setStreamHandler(null)
         remoteConfigChangeChannel.setStreamHandler(null)
         featuresChangeChannel.setStreamHandler(null)
         syncCallbackChannel.setMethodCallHandler(null)
@@ -1587,6 +1610,26 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
     private inner class InitDelegateForwarder : AppDNAInitDelegate {
         override fun onInitDegraded(reason: Throwable) {
             emit(initEventSink, "onInitDegraded", mapOf("error" to throwableToMap(reason)))
+        }
+    }
+
+    /**
+     * SPEC-404 — runtime-lock lifecycle delegate. Forwards
+     * `onSdkRuntimeLocked(reason, lockedAt)` / `onSdkRuntimeUnlocked()` as
+     * observe-only envelopes on the lifecycle event channel. `lockedAt` is the
+     * native ISO-8601 String verbatim (same type iOS emits).
+     */
+    private inner class LifecycleDelegateForwarder : AppDNALifecycleDelegate {
+        override fun onSdkRuntimeLocked(reason: String, lockedAt: String) {
+            emit(
+                lifecycleEventSink,
+                "onSdkRuntimeLocked",
+                mapOf("reason" to reason, "lockedAt" to lockedAt),
+            )
+        }
+
+        override fun onSdkRuntimeUnlocked() {
+            emit(lifecycleEventSink, "onSdkRuntimeUnlocked", emptyMap())
         }
     }
 }

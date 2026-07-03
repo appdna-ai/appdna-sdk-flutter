@@ -72,6 +72,15 @@ class AppDNA {
   static AppDNAInitDelegate? _initDelegate;
   static StreamSubscription? _initSub;
 
+  /// SPEC-404 — backend-driven runtime-lock lifecycle stream. Native (iOS +
+  /// Android) emits `onSdkRuntimeLocked` / `onSdkRuntimeUnlocked` here once per
+  /// lock-state transition. Supported on BOTH platforms (unlike the init
+  /// stream). Register via [AppDNA.setLifecycleDelegate].
+  static const EventChannel _lifecycleChannel =
+      EventChannel('com.appdna.sdk/events/lifecycle');
+  static AppDNALifecycleDelegate? _lifecycleDelegate;
+  static StreamSubscription? _lifecycleSub;
+
   static void _ensureSyncCallbacks() {
     if (_syncCallbacksWired) return;
     _syncCallbacksWired = true;
@@ -404,6 +413,40 @@ class AppDNA {
   static Future<Map<String, dynamic>?> lastInitError() async {
     final data = await _channel.invokeMethod<Map>('getLastInitError');
     return data == null ? null : Map<String, dynamic>.from(data);
+  }
+
+  /// SPEC-404 — register a delegate notified when the backend locks or unlocks
+  /// the SDK runtime (e.g. billing overdue, org cancelled). Fires once per
+  /// state transition on BOTH platforms. Pass `null` to clear the current
+  /// delegate and stop listening.
+  static void setLifecycleDelegate(AppDNALifecycleDelegate? delegate) {
+    _lifecycleDelegate = delegate;
+    _lifecycleSub?.cancel();
+    _lifecycleSub = null;
+    if (delegate == null) return;
+    _lifecycleSub = _lifecycleChannel.receiveBroadcastStream().listen((raw) {
+      if (raw is! Map) return;
+      final type = raw['type'] as String?;
+      final args =
+          (raw['args'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      final d = _lifecycleDelegate;
+      if (d == null || type == null) return;
+      switch (type) {
+        case 'onSdkRuntimeLocked':
+          // lockedAt is an ISO-8601 string (raw for cross-platform parity —
+          // matches the native Android/iOS emit type; host parses if needed).
+          d.onSdkRuntimeLocked(
+            args['reason'] as String? ?? '',
+            args['lockedAt'] as String? ?? '',
+          );
+          break;
+        case 'onSdkRuntimeUnlocked':
+          d.onSdkRuntimeUnlocked();
+          break;
+        default:
+          break;
+      }
+    });
   }
 
   // MARK: - SPEC-070-C §3.2 events

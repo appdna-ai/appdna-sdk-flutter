@@ -17,3 +17,8 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^2.0.0
+
+flutter:
+  # Bundle the Material Icons font so the demo's Icons.* glyphs render (without
+  # this they show as "?" tofu boxes).
+  uses-material-design: true

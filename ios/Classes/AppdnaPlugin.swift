@@ -420,11 +420,10 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         case "isConsentGranted":
             result(AppDNA.isConsentGranted())
 
-        // Android returns a report String; iOS `diagnose()` is Void (prints to
-        // console) → return nil so the Dart facade yields `String?` = null.
+        // Both natives return the diagnostic report String (iOS diagnose() was
+        // made -> String for parity with Android) → Dart facade yields it on both.
         case "diagnose":
-            AppDNA.diagnose()
-            result(nil)
+            result(AppDNA.diagnose())
 
         case "getUserTraits":
             result(AppDNA.getUserTraits())

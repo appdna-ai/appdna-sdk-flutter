@@ -26,6 +26,17 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  // Surface targets injected at build time via --dart-define (no customer IDs
+  // committed). Fall back to placeholders for source readers.
+  static const _onboardingId =
+      String.fromEnvironment('APPDNA_ONBOARDING_ID', defaultValue: 'default');
+  static const _paywallId =
+      String.fromEnvironment('APPDNA_PAYWALL_ID', defaultValue: 'default');
+  static const _surveyId =
+      String.fromEnvironment('APPDNA_SURVEY_ID', defaultValue: 'default');
+  static const _messageEvent =
+      String.fromEnvironment('APPDNA_MESSAGE_EVENT', defaultValue: 'session_start');
+
   String _status = 'Not configured';
   String? _webEntitlement;
   String? _deepLink;
@@ -87,7 +98,7 @@ class _HomePageState extends State<HomePage> {
 
           // Present Paywall
           FilledButton.icon(
-            onPressed: () => AppDNA.presentPaywall('default'),
+            onPressed: () => AppDNA.presentPaywall(_paywallId),
             icon: const Icon(Icons.shopping_cart),
             label: const Text('Present Paywall'),
           ),
@@ -95,9 +106,25 @@ class _HomePageState extends State<HomePage> {
 
           // Present Onboarding
           FilledButton.icon(
-            onPressed: () => AppDNA.presentOnboarding('default'),
+            onPressed: () => AppDNA.presentOnboarding(_onboardingId),
             icon: const Icon(Icons.rocket_launch),
             label: const Text('Present Onboarding'),
+          ),
+          const SizedBox(height: 12),
+
+          // Present Survey
+          FilledButton.icon(
+            onPressed: () => AppDNA.showSurvey(_surveyId),
+            icon: const Icon(Icons.assignment),
+            label: const Text('Present Survey'),
+          ),
+          const SizedBox(height: 12),
+
+          // Trigger In-App Message (fires the native trigger evaluation)
+          FilledButton.icon(
+            onPressed: () => AppDNA.track(_messageEvent),
+            icon: const Icon(Icons.campaign),
+            label: const Text('Trigger In-App Message'),
           ),
           const SizedBox(height: 12),
 
@@ -143,6 +170,34 @@ class _HomePageState extends State<HomePage> {
             },
             icon: const Icon(Icons.flag),
             label: const Text('Check Feature Flag'),
+          ),
+          const SizedBox(height: 12),
+
+          // Run Diagnose — returns the SDK health report String on BOTH platforms.
+          FilledButton.icon(
+            onPressed: () async {
+              final report = await AppDNA.diagnose();
+              if (context.mounted) {
+                showDialog<void>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('SDK Diagnose'),
+                    content: SingleChildScrollView(
+                      child: Text(report ?? '(null)',
+                          style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(ctx).pop(),
+                        child: const Text('Close'),
+                      ),
+                    ],
+                  ),
+                );
+              }
+            },
+            icon: const Icon(Icons.health_and_safety),
+            label: const Text('Run Diagnose'),
           ),
         ],
       ),

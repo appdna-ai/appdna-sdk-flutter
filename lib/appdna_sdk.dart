@@ -358,9 +358,9 @@ class AppDNA {
     return granted ?? false;
   }
 
-  /// Emit a comprehensive SDK health report. Returns the report string on
-  /// Android; on iOS the report is printed to the console and this returns
-  /// `null` (§3.1: iOS `diagnose()` is `Void`).
+  /// Emit a comprehensive SDK health report and return it as a string. Both
+  /// platforms return the report (and also print it to the console) — iOS
+  /// `diagnose()` was made `-> String` for parity with Android.
   static Future<String?> diagnose() async {
     return await _channel.invokeMethod<String>('diagnose');
   }

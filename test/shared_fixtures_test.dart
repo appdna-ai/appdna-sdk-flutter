@@ -98,7 +98,11 @@ List<Map<String, dynamic>> _loadFlutterFixtures() {
   for (final f in files) {
     final json = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
     final platforms = (json['platforms'] as List).cast<String>();
-    if (platforms.contains('flutter')) {
+    final category = (json['category'] as String?) ?? '';
+    // `render` (SPEC-419) and `events` (SPEC-428) fixtures carry no `action` — this behavioral runner
+    // requires one. The event pipeline is native-owned (ADR-001), so its guarantees are asserted by the
+    // iOS + Android EventPipeline runners; the Flutter thin wrapper only forwards track() to native.
+    if (platforms.contains('flutter') && category != 'render' && category != 'events') {
       fixtures.add(json);
     }
   }

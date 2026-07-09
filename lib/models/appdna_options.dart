@@ -51,7 +51,10 @@ class AppDNAOptions {
   /// Log verbosity. Default: warning.
   final AppDNALogLevel? logLevel;
 
-  /// Billing provider for paywall purchases (iOS only). Default: storeKit2.
+  /// Billing provider for paywall purchases. Default: storeKit2 (Google Play Billing on Android).
+  ///
+  /// SPEC-070-B PN row 11(a): reaches native on **both** platforms from Android 1.0.42. Before
+  /// that the Android plugin silently ignored it — the "(iOS only)" this doc used to claim.
   final AppDNABillingProvider? billingProvider;
 
   /// Notification small-icon drawable resource id used for AppDNA push
@@ -68,6 +71,15 @@ class AppDNAOptions {
   /// `flutter`; this override exists only for special embedding scenarios.
   final String? framework;
 
+  /// SPEC-070-B PN row 14 (AC-36) — when true, analytics stay OFF until `setConsent(true)`, and no
+  /// event (including `sdk_initialized`) is emitted before that decision. Default false: analytics
+  /// are opt-out. Either way the decision now **persists** across a cold start.
+  final bool? requireConsent;
+
+  /// SPEC-070-B PN row 16 (W12) — seconds a host veto may take before the SDK applies the hook's
+  /// default. Default 5. Surfaced through `diagnose()`.
+  final int? vetoTimeout;
+
   const AppDNAOptions({
     this.flushInterval,
     this.batchSize,
@@ -76,6 +88,8 @@ class AppDNAOptions {
     this.billingProvider,
     this.notificationIcon,
     this.framework,
+    this.requireConsent,
+    this.vetoTimeout,
   });
 
   Map<String, dynamic> toMap() => {
@@ -85,6 +99,8 @@ class AppDNAOptions {
         if (logLevel != null) 'logLevel': logLevel!.name,
         if (billingProvider != null) 'billingProvider': billingProvider!.toJson(),
         if (notificationIcon != null) 'notificationIcon': notificationIcon,
+        if (requireConsent != null) 'requireConsent': requireConsent,
+        if (vetoTimeout != null) 'vetoTimeout': vetoTimeout,
         // Always tag Flutter traffic (defaults to 'flutter' when not overridden).
         'framework': framework ?? 'flutter',
         // The wrapper's OWN version so native diagnose() reports it per platform.

@@ -489,10 +489,14 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                 val contextMap = call.argument<Map<String, Any>>("context")
                 val paywallContext = contextMap?.let { map ->
                     val placement = map["placement"] as? String ?: return@let null
+                    // SPEC-070-B PN row 11(e) / D-s: customData finally reaches native.
+                    @Suppress("UNCHECKED_CAST")
+                    val custom = map["customData"] as? Map<String, Any>
                     PaywallContext(
                         placement = placement,
                         experiment = map["experiment"] as? String,
-                        variant = map["variant"] as? String
+                        variant = map["variant"] as? String,
+                        customData = custom
                     )
                 }
                 // SPEC-070-C HIGH-1/2 — route through the MODULE present() so the
@@ -814,10 +818,14 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                 val contextMap = call.argument<Map<String, Any>>("context")
                 val paywallContext = contextMap?.let { map ->
                     val p = map["placement"] as? String ?: placement
+                    // SPEC-070-B PN row 11(e) / D-s.
+                    @Suppress("UNCHECKED_CAST")
+                    val custom = map["customData"] as? Map<String, Any>
                     PaywallContext(
                         placement = p,
                         experiment = map["experiment"] as? String,
                         variant = map["variant"] as? String,
+                        customData = custom,
                     )
                 }
                 // SPEC-070-C HIGH-2 — no module-level placement present() exists,
@@ -1049,7 +1057,15 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
             // SPEC-070-C D4: wrapper attribution (Dart defaults it to "flutter").
             framework = map["framework"] as? String ?: "native",
             // SPEC-070-C: wrapper's own version so diagnose() reports per-platform.
-            frameworkVersion = map["frameworkVersion"] as? String
+            frameworkVersion = map["frameworkVersion"] as? String,
+            // SPEC-070-B PN row 11(a): Android gained `billingProvider` in 1.0.42, so the Dart
+            // `AppDNABillingProvider` a host has been able to set since 070-C finally reaches native
+            // on this platform. `fromWire` handles both the bare string and the adapty tagged map;
+            // an unrecognized value falls back to the native default rather than guessing.
+            billingProvider = ai.appdna.sdk.BillingProvider.fromWire(map["billingProvider"])
+                ?: AppDNAOptions().billingProvider,
+            requireConsent = map["requireConsent"] as? Boolean ?: AppDNAOptions().requireConsent,
+            vetoTimeout = (map["vetoTimeout"] as? Number)?.toLong() ?: AppDNAOptions().vetoTimeout
         )
     }
 

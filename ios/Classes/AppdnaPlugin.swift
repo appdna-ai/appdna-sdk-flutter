@@ -465,8 +465,22 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             result(nil)
 
         // §3.14 iOS no-ops (Android-only forced-theme / init delegate).
-        case "setForcedTheme", "getForcedTheme", "getLastInitError":
+        // SPEC-070-C: iOS has no ForcedTheme (verified: 0 hits in the iOS SDK), so these two stay
+        // no-ops rather than pretending. `getLastInitError` is no longer among them — see below.
+        case "setForcedTheme", "getForcedTheme":
             result(nil)
+
+        // SPEC-070-B PN row 11(b): iOS gained the init-degraded seam in 1.0.70, so this stops being
+        // a shim that reports "healthy" for a degraded SDK. Shape matches Android's throwableToMap.
+        case "getLastInitError":
+            if let err = AppDNA.lastInitError {
+                result([
+                    "type": String(describing: type(of: err)),
+                    "message": err.localizedDescription,
+                ])
+            } else {
+                result(nil)
+            }
 
         // §3.1 brand accent hex — read-only public on BOTH platforms.
         case "getBrandAccentHex":
@@ -677,7 +691,10 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             // SPEC-070-C D4: wrapper attribution (Dart defaults it to "flutter").
             framework: dict["framework"] as? String ?? "native",
             // SPEC-070-C: wrapper's own version so diagnose() reports per-platform.
-            frameworkVersion: dict["frameworkVersion"] as? String
+            frameworkVersion: dict["frameworkVersion"] as? String,
+            // SPEC-070-B PN rows 14 + 16. Never a literal: mirror the native default.
+            requireConsent: dict["requireConsent"] as? Bool ?? AppDNAOptions().requireConsent,
+            vetoTimeout: dict["vetoTimeout"] as? TimeInterval ?? AppDNAOptions().vetoTimeout
         )
     }
 
@@ -686,7 +703,10 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         return PaywallContext(
             placement: placement,
             experiment: dict["experiment"] as? String,
-            variant: dict["variant"] as? String
+            variant: dict["variant"] as? String,
+            // SPEC-070-B PN row 11(e) / D-s: customData was declared on the Dart side and dropped
+            // here. It now reaches native, where it is merged into the `paywall_view` properties.
+            customData: dict["customData"] as? [String: Any]
         )
     }
 

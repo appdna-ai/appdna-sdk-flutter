@@ -324,7 +324,10 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             }
 
         case "shutdown":
-            // iOS SDK does not expose a shutdown method; resolve immediately.
+            // `AppDNA.shutdown()` exists (AppDNA.swift) and flushes the event queue
+            // before tearing down. The old comment claiming otherwise was wrong, and
+            // this handler silently resolved without shutting anything down.
+            AppDNA.shutdown()
             result(nil)
 
         case "getSdkVersion":
@@ -667,7 +670,8 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         return AppDNAOptions(
             flushInterval: dict["flushInterval"] as? TimeInterval ?? 30,
             batchSize: dict["batchSize"] as? Int ?? 20,
-            configTTL: dict["configTTL"] as? TimeInterval ?? 300,
+            // Never a literal: mirror the native default so this cannot drift again.
+            configTTL: dict["configTTL"] as? TimeInterval ?? AppDNAOptions().configTTL,
             logLevel: logLevel,
             billingProvider: billingProvider,
             // SPEC-070-C D4: wrapper attribution (Dart defaults it to "flutter").

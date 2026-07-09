@@ -55,15 +55,46 @@ void main() {
       expect(link.params['code'], 'spring');
     });
 
-    test('SurveyResult can be deserialized from map', () {
+    test('SurveyResult parses the payload the platform channel actually sends', () {
+      // The channel sends `responses`, not `answers`. The old test fed the model
+      // its own keys and so never noticed that `answers` was always null.
+      // ignore: deprecated_member_use_from_same_package
       final result = SurveyResult.fromMap({
         'surveyId': 's1',
-        'completed': true,
-        'questionsAnswered': 3,
+        'responses': [
+          {'questionId': 'q1', 'answer': 'yes'},
+          {'questionId': 'q2', 'answer': 4},
+        ],
       });
       expect(result.surveyId, 's1');
+      expect(result.answers, isNotNull);
+      expect(result.answers!.length, 2);
+      expect(result.answers![0].questionId, 'q1');
+      expect(result.answers![0].answer, 'yes');
+      expect(result.answers![1].answer, 4);
+      // Derived, since the wire carries neither field.
       expect(result.completed, true);
-      expect(result.questionsAnswered, 3);
+      expect(result.questionsAnswered, 2);
+    });
+
+    test('SurveyResult still accepts the legacy `answers` key', () {
+      // ignore: deprecated_member_use_from_same_package
+      final result = SurveyResult.fromMap({
+        'surveyId': 's2',
+        'answers': [
+          {'questionId': 'q1', 'answer': 'ok'},
+        ],
+      });
+      expect(result.answers!.single.questionId, 'q1');
+      expect(result.questionsAnswered, 1);
+    });
+
+    test('SurveyResult with no responses is not a completion', () {
+      // ignore: deprecated_member_use_from_same_package
+      final result = SurveyResult.fromMap({'surveyId': 's3'});
+      expect(result.completed, false);
+      expect(result.questionsAnswered, 0);
+      expect(result.answers, isNull);
     });
 
     test('Module namespace accessors are available', () {

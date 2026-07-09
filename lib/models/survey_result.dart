@@ -1,4 +1,21 @@
+// The class below is @Deprecated but must keep constructing itself in its own
+// factory. Self-references inside the declaring library are not a misuse.
+// ignore_for_file: deprecated_member_use_from_same_package
+
 /// Represents the result of a completed or dismissed survey.
+///
+/// Nothing in the SDK produces this type. The survey delegate reports completion
+/// as `onSurveyCompleted(String surveyId, List<Map<String, dynamic>> responses)`,
+/// which is the native shape on every platform. This model is kept only so hosts
+/// that already reference it keep compiling.
+///
+/// Its `fromMap` previously read a `'answers'` key while the platform channel
+/// sends `'responses'`, so `answers` was always null — and the unit test fed the
+/// model its own keys, so it never caught that.
+@Deprecated(
+  'Nothing produces SurveyResult. Use AppDNASurveyDelegate.onSurveyCompleted '
+  '(surveyId, responses) instead. Removed in a future major release.',
+)
 class SurveyResult {
   /// The survey ID.
   final String surveyId;
@@ -19,14 +36,22 @@ class SurveyResult {
     this.answers,
   });
 
+  /// Parses the shape the platform channel actually sends:
+  /// `{'surveyId': String, 'responses': [{'questionId': String, 'answer': dynamic}]}`.
+  ///
+  /// `'answers'` is still accepted as a legacy alias. `completed` and
+  /// `questionsAnswered` have no wire representation and are derived: a payload
+  /// carrying responses represents a completion.
   factory SurveyResult.fromMap(Map<String, dynamic> map) {
+    final raw = (map['responses'] ?? map['answers']) as List<dynamic>?;
+    final parsed = raw
+        ?.map((a) => SurveyAnswer.fromMap((a as Map).cast<String, dynamic>()))
+        .toList();
     return SurveyResult(
       surveyId: map['surveyId'] as String? ?? '',
-      completed: map['completed'] as bool? ?? false,
-      questionsAnswered: map['questionsAnswered'] as int? ?? 0,
-      answers: (map['answers'] as List<dynamic>?)
-          ?.map((a) => SurveyAnswer.fromMap(a as Map<String, dynamic>))
-          .toList(),
+      completed: map['completed'] as bool? ?? (parsed != null && parsed.isNotEmpty),
+      questionsAnswered: map['questionsAnswered'] as int? ?? (parsed?.length ?? 0),
+      answers: parsed,
     );
   }
 

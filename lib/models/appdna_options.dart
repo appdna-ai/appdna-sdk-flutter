@@ -45,7 +45,7 @@ class AppDNAOptions {
   /// Number of events per flush batch. Default: 20.
   final int? batchSize;
 
-  /// Remote config cache TTL in seconds. Default: 300 (5 min).
+  /// Remote config cache TTL in seconds. Default: 3600 (1 hour), set natively.
   final int? configTTL;
 
   /// Log verbosity. Default: warning.

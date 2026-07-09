@@ -1040,7 +1040,8 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
         return AppDNAOptions(
             flushInterval = (map["flushInterval"] as? Number)?.toLong() ?: 30L,
             batchSize = (map["batchSize"] as? Number)?.toInt() ?: 20,
-            configTTL = (map["configTTL"] as? Number)?.toLong() ?: 300L,
+            // Never a literal: mirror the native default so this cannot drift again.
+            configTTL = (map["configTTL"] as? Number)?.toLong() ?: AppDNAOptions().configTTL,
             logLevel = logLevel,
             // SPEC-070-C §3.1 — Android-only notification small-icon drawable id
             // (0 = unset → SDK falls back to manifest meta-data then app icon).

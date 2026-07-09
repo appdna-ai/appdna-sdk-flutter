@@ -66,7 +66,7 @@ Dart/Flutter SDK. Thin platform channel wrapper around the native iOS and Androi
 |--------|------|---------|-------------|
 | `flushInterval` | `int?` | 30 | Auto flush interval in seconds |
 | `batchSize` | `int?` | 20 | Events per flush batch |
-| `configTTL` | `int?` | 300 | Remote config cache TTL in seconds |
+| `configTTL` | `int?` | 3600 | Remote config cache TTL in seconds |
 | `logLevel` | `AppDNALogLevel?` | `warning` | Log verbosity (none/error/warning/info/debug) |
 | `billingProvider` | `AppDNABillingProvider?` | `storeKit2` | Billing provider (iOS only) |
 

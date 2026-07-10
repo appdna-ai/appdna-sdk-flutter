@@ -2,7 +2,7 @@
 // Source: src/lib/sdk-delegates/index.ts
 // Generator: scripts/sdk-codegen/emit-delegates.ts
 // Regenerate: pnpm sdk-codegen
-// Last codegen commit: ea81e45d0e1549af59d43b0f74403741833808fd
+// Last codegen commit: 40dd33ff8d31da20dd890d5da60c7be0a63846be
 
 /// Onboarding flow lifecycle observer + SPEC-083/419/421 async return-value hooks (routed via the sync_callbacks channel on Flutter/RN; native-hand-written on iOS, hand-written-Android per D11).
 abstract class AppDNAOnboardingDelegate {

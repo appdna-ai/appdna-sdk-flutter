@@ -14,23 +14,22 @@
 // SDK code paths). The Flutter runner asserts the wrapper produces the
 // CORRECT CHANNEL CALL — i.e. the input-side of the contract.
 //
-// PHASE 0.4 SCAFFOLDING NOTE
-// ---------------------------
-// The Dart facade does not yet expose every action kind we have fixtures
-// for (the SDK is intentionally narrow today — see SPEC-070-C catchup
-// queue). The kinds wired through Phase 0.4:
+// WHAT THIS RUNNER MAY CLAIM
+// --------------------------
+// 🔴 It used to claim 37 fixtures and assert ONE. Two sat in a `knownDriverGaps` set and the other
+// 34 fell through `default:` to a "soft skip" that printed a line and RETURNED from inside the
+// `test()` body — so Dart printed a tick for each. Every paywall, purchase, restore and push fixture
+// was a green no-op; emptying `AppDNA.presentPaywall` broke nothing. The one hard-skipped
+// `track_event` fixture was hiding a real bug: the driver read `action['event']` when the fixture key
+// is `event_name`.
 //
-//   - track_event   → AppDNA.track(...)         — channel: "track"
-//   - identify      → AppDNA.identify(...)      — channel: "identify"
-//   - tap_button    → SKIP (no host-driven UI tap simulation in the
-//                          Dart facade today; v1.0.60 dual-emit is
-//                          purely native-side. Asserted by iOS+Android.)
-//   - submit_form   → SKIP (same — onboarding render is native)
-//   - evaluate_audience → SKIP (native-only API surface)
+// The rule now: a thin wrapper FORWARDS, so forwarding is the only thing it can prove. A fixture
+// whose `expect` describes native behaviour — a form advancing, a purchase failure being typed, a
+// push routing to a deep link — is a NATIVE fixture, and its `platforms` list must say so. This
+// runner drives the fixtures whose subject is marshalling (`track_event`, `identify`), and an action
+// kind it has no driver for is a FAILURE, never a skip.
 //
-// All other kinds emit a soft skip with reason "Phase 0.5+ assertion
-// not yet implemented." CI stays green; the skip count is the Phase 0.5
-// remaining-work gauge.
+// `check:fixture-runner-skips` enforces exactly that: no skiplist, no soft-skip, fatal fallback.
 //
 // FIXTURE PATH RESOLUTION
 // -----------------------
@@ -59,7 +58,6 @@ class _CapturedCall {
 
 class _Spy {
   final List<_CapturedCall> calls = <_CapturedCall>[];
-  final List<String> skipReasons = <String>[];
 }
 
 Directory _resolveFixturesRoot() {
@@ -140,18 +138,37 @@ Future<void> _runFixture(Map<String, dynamic> fixture, _Spy spy) async {
 
   switch (kind) {
     case 'track_event':
-      final event = action['event'] as String? ?? 'unknown';
-      final props = action['properties'] as Map<String, dynamic>?;
-      await AppDNA.track(event, properties: props);
+      // The fixture key is `event_name`. This read `action['event']` — always null — and papered
+      // over it with `?? 'unknown'`, so it tracked a made-up event and then asserted
+      // `args['event'] == action['event']`, i.e. 'unknown' == null. That would have failed loudly,
+      // which is presumably why the ONLY track_event fixture sat in `knownDriverGaps`. A missing key
+      // is a broken fixture; say so rather than inventing a name.
+      final event = action['event_name'] as String?;
+      if (event == null) {
+        fail('[${fixture['id']}] track_event fixture has no `event_name`');
+      }
+      await AppDNA.track(event, properties: action['properties'] as Map<String, dynamic>?);
       break;
     case 'identify':
-      final userId = action['userId'] as String? ?? '';
-      final traits = action['traits'] as Map<String, dynamic>?;
-      await AppDNA.identify(userId, traits: traits);
+      final userId = action['userId'] as String?;
+      if (userId == null) {
+        fail('[${fixture['id']}] identify fixture has no `userId`');
+      }
+      await AppDNA.identify(userId, traits: action['traits'] as Map<String, dynamic>?);
       break;
     default:
-      spy.skipReasons.add(
-        'Phase 0.5+ assertion not yet implemented for action.kind=$kind',
+      // 🔴 This used to record a skip reason and let the test PASS. 34 of the 37 fixtures that
+      // claimed `flutter` came through here and printed a tick — every paywall, purchase, restore
+      // and push fixture among them. Emptying `AppDNA.presentPaywall` left all five paywall
+      // fixtures green.
+      //
+      // A fixture this runner cannot drive is not a fixture this runner may pass. The wrapper is
+      // thin: it forwards, so it can only ever prove FORWARDING. Anything asserting native
+      // behaviour (rendering a form, typing a purchase failure, routing a push) is a native
+      // fixture, and its `platforms` list must not claim `flutter`.
+      fail(
+        '[${fixture['id']}] no Flutter driver for action.kind=$kind. Either add one, or remove '
+        '"flutter" from this fixture\'s platforms — it asserts behaviour the wrapper does not have.',
       );
   }
 }
@@ -167,7 +184,7 @@ void _assertChannelCalls(Map<String, dynamic> fixture, _Spy spy) {
       final c = spy.calls.first;
       expect(c.method, 'track', reason: '[$id] expected channel method "track"');
       final args = c.arguments as Map;
-      expect(args['event'], action['event'], reason: '[$id] track event name');
+      expect(args['event'], action['event_name'], reason: '[$id] track event name');
       final actualProps = args['properties'];
       final expectedProps = action['properties'];
       expect(
@@ -191,8 +208,7 @@ void _assertChannelCalls(Map<String, dynamic> fixture, _Spy spy) {
       );
       break;
     default:
-      // Skipped — already recorded in spy.skipReasons.
-      break;
+      fail('[$id] no channel-contract assertion registered for action.kind=$kind');
   }
 }
 
@@ -227,31 +243,12 @@ void main() {
         reason: 'No flutter-applicable fixtures found — runner is broken');
   });
 
-  // SPEC-070-A wrap-up: fixtures whose Flutter test driver doesn't yet
-  // simulate the full thin-wrapper channel contract they expect — assertion
-  // would legitimately mismatch. Skiplist tracks remaining Phase 0.5+ work.
-  // Same pattern as iOS SharedFixtureTests `knownDriverGaps`.
-  const knownDriverGaps = <String>{
-    'on_paywall_purchase_failed_error_type', // strongly-typed errorType discriminator simulation
-    'screen_view_emits_screen_field',        // notifyScreenAppeared channel call simulation
-  };
-
   group('SharedFixtures (Flutter channel contract)', () {
     for (final fixture in fixtures) {
       final id = fixture['id'] as String;
       final description = fixture['description'] as String;
       test('$id — $description', () async {
-        if (knownDriverGaps.contains(id)) {
-          // ignore: avoid_print
-          print('[shared_fixtures_test] SKIP $id — driver simulation incomplete (SPEC-070-A wrap-up)');
-          return;
-        }
         await _runFixture(fixture, spy);
-        if (spy.skipReasons.isNotEmpty) {
-          // ignore: avoid_print
-          print('[shared_fixtures_test] SKIP $id — ${spy.skipReasons.first}');
-          return;
-        }
         _assertChannelCalls(fixture, spy);
       });
     }

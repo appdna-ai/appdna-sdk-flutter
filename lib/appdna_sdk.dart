@@ -139,10 +139,10 @@ class AppDNA {
     AppDNAOptions? options,
   }) async {
     _ensureSyncCallbacks();
-    // Always send an options map — even when the caller passes no options — so the
-    // D4 `framework: 'flutter'` tag reaches native (a bare native AppDNAOptions()
-    // defaults framework to 'native', which would mis-attribute every event on the
-    // common `configure(apiKey:)` path). AppDNAOptions().toMap() emits framework only.
+    // Always send an options map — even when the caller passes none — so `frameworkVersion`
+    // reaches native on the common `configure(apiKey:)` path. The `framework` TAG is not in this
+    // map at all: native injects it (§7 rule 1). It used to travel through here, which is exactly
+    // what made it spoofable and what let a bare map mean "native".
     await _channel.invokeMethod('configure', {
       'apiKey': apiKey,
       'env': env.name,

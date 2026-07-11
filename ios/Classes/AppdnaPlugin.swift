@@ -651,6 +651,9 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         return data
     }
 
+    /// The wrapper's attribution tag. A constant, not a parameter — see `parseOptions`.
+    static let frameworkTag = "flutter"
+
     private func parseOptions(_ dict: [String: Any]?) -> AppDNAOptions {
         guard let dict = dict else { return AppDNAOptions() }
         let logLevelStr = dict["logLevel"] as? String ?? "warning"
@@ -688,8 +691,16 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             configTTL: dict["configTTL"] as? TimeInterval ?? AppDNAOptions().configTTL,
             logLevel: logLevel,
             billingProvider: billingProvider,
-            // SPEC-070-C D4: wrapper attribution (Dart defaults it to "flutter").
-            framework: dict["framework"] as? String ?? "native",
+            // SPEC-070-B §7 rule 1 — INJECTED, never read from the host's map.
+            //
+            // This used to be `dict["framework"] as? String ?? "native"`, which had two failure
+            // modes and no way to notice either: a host could SPOOF its attribution by passing
+            // `framework: 'ios'`, and any path that reached configure without Dart's `toMap()`
+            // (which is the only thing that supplies the key) silently fell back to "native" —
+            // tagging every Flutter event as a native one. The envelope schema is `.catch('native')`,
+            // so a wrong tag does not error, is not logged, and is not metered. It just quietly lies
+            // in BigQuery. RN already injects unconditionally; now Flutter does too.
+            framework: Self.frameworkTag,
             // SPEC-070-C: wrapper's own version so diagnose() reports per-platform.
             frameworkVersion: dict["frameworkVersion"] as? String,
             // SPEC-070-B PN rows 14 + 16. Never a literal: mirror the native default.

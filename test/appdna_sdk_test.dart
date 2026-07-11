@@ -97,6 +97,29 @@ void main() {
       expect(result.answers, isNull);
     });
 
+    test('toMap never sends a framework tag — native injects it', () {
+      // The tag used to travel in this map and native read it back out, so a host could spoof its
+      // own attribution, and any map without the key silently meant "native". Every Flutter event
+      // then landed in BigQuery mis-attributed, and because the envelope schema is `.catch('native')`
+      // that never errored, logged, or metered. Native now hardcodes `flutter`; the map must not
+      // carry the key at all, or the old read-back would resurrect unnoticed.
+      expect(const AppDNAOptions().toMap().containsKey('framework'), isFalse);
+      expect(
+        // ignore: deprecated_member_use_from_same_package
+        const AppDNAOptions(framework: 'ios').toMap().containsKey('framework'),
+        isFalse,
+        reason: 'a host must not be able to spoof its attribution',
+      );
+    });
+
+    test('toMap reports the version this package actually ships', () {
+      // `kAppDNAFlutterSdkVersion` said 1.0.6 while pubspec published 1.0.8 for two releases, so
+      // every event carried a frameworkVersion that had never run. Only the pubspec/gate pair can
+      // catch the drift (`pnpm check:wrapper-version-selfreport`); this asserts the constant is
+      // what actually crosses the channel.
+      expect(const AppDNAOptions().toMap()['frameworkVersion'], kAppDNAFlutterSdkVersion);
+    });
+
     test('Module namespace accessors are available', () {
       // Verify the static module namespace getters exist and return non-null.
       // These are thin wrappers around MethodChannel so we just check references.

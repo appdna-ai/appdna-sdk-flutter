@@ -1035,6 +1035,16 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
         }
     }
 
+    companion object {
+        /**
+         * SPEC-070-B §7 rule 1 — the wrapper's attribution tag, INJECTED by the bridge.
+         *
+         * A constant, not a map lookup: a host must not be able to set, spoof, or omit its own
+         * attribution. Mirrors the RN wrapper's `FRAMEWORK_TAG`.
+         */
+        private const val FRAMEWORK_TAG = "flutter"
+    }
+
     private fun parseOptions(map: Map<String, Any>?): AppDNAOptions {
         if (map == null) return AppDNAOptions()
         val logLevel = when (map["logLevel"] as? String) {
@@ -1054,8 +1064,12 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
             // SPEC-070-C §3.1 — Android-only notification small-icon drawable id
             // (0 = unset → SDK falls back to manifest meta-data then app icon).
             notificationIcon = (map["notificationIcon"] as? Number)?.toInt() ?: 0,
-            // SPEC-070-C D4: wrapper attribution (Dart defaults it to "flutter").
-            framework = map["framework"] as? String ?: "native",
+            // SPEC-070-B §7 rule 1 — INJECTED, never read from the host's map. This used to be
+            // `map["framework"] as? String ?: "native"`: a host could SPOOF its attribution, and any
+            // path reaching configure without Dart's `toMap()` fell back to "native" and tagged every
+            // Flutter event as native. The envelope schema is `.catch('native')`, so a wrong tag does
+            // not error, is not logged, and is not metered — it just quietly lies in BigQuery.
+            framework = FRAMEWORK_TAG,
             // SPEC-070-C: wrapper's own version so diagnose() reports per-platform.
             frameworkVersion = map["frameworkVersion"] as? String,
             // SPEC-070-B PN row 11(a): Android gained `billingProvider` in 1.0.42, so the Dart

@@ -2,7 +2,7 @@
 /// native SDK so `diagnose()` shows the Flutter version per platform (instead of
 /// the native core version). MUST be kept in sync with `pubspec.yaml` `version:`
 /// (bump both together — see D14 version-bump checklist).
-const String kAppDNAFlutterSdkVersion = '1.0.6';
+const String kAppDNAFlutterSdkVersion = '1.0.9';
 
 /// Log verbosity levels.
 enum AppDNALogLevel { none, error, warning, info, debug }
@@ -66,9 +66,20 @@ class AppDNAOptions {
   /// layer supplies it. Bridged for full §3.1 surface parity.
   final int? notificationIcon;
 
-  /// SPEC-070-C D4 — SDK-wrapper attribution tagged on every event's device
-  /// context (→ BigQuery `framework` column). The Flutter SDK always reports
-  /// `flutter`; this override exists only for special embedding scenarios.
+  /// SPEC-070-B §7 rule 1 — **ignored. The bridge injects `flutter` unconditionally.**
+  ///
+  /// This used to be sent to native, which read it back out of the options map. That let a host
+  /// SPOOF its own attribution, and it meant any path that reached `configure` without going
+  /// through [toMap] fell back to native's `"native"` default — tagging every Flutter event as a
+  /// native one. The envelope schema is `.catch('native')`, so a wrong tag does not error, is not
+  /// logged, and is not metered: it just quietly lies in BigQuery.
+  ///
+  /// The field is kept (rather than removed) so existing hosts still compile; setting it now has no
+  /// effect.
+  @Deprecated(
+    'Ignored since 1.0.9 — the native bridge injects the framework tag itself. '
+    'A host must not be able to set, spoof, or omit its own attribution. Remove this argument.',
+  )
   final String? framework;
 
   /// SPEC-070-B PN row 14 (AC-36) — when true, analytics stay OFF until `setConsent(true)`, and no
@@ -101,8 +112,8 @@ class AppDNAOptions {
         if (notificationIcon != null) 'notificationIcon': notificationIcon,
         if (requireConsent != null) 'requireConsent': requireConsent,
         if (vetoTimeout != null) 'vetoTimeout': vetoTimeout,
-        // Always tag Flutter traffic (defaults to 'flutter' when not overridden).
-        'framework': framework ?? 'flutter',
+        // `framework` is deliberately NOT sent: the native bridge injects it (§7 rule 1). Sending
+        // it is what made it spoofable, and what let a missing key mean "native".
         // The wrapper's OWN version so native diagnose() reports it per platform.
         'frameworkVersion': kAppDNAFlutterSdkVersion,
       };

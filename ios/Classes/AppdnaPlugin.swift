@@ -1723,6 +1723,26 @@ private class ScreenDelegateForwarder: NSObject, AppDNAScreenDelegate, FlutterSt
             return ["type": "haptic", "hapticType": type]
         case .custom(let type, let value):
             return ["type": "custom", "customType": type, "value": value]
+        // Flow-level verbs. Discriminators + field names are Android's `toActionMap`
+        // (`screens/SectionContext.kt:94-103`) verbatim, so the veto payload stays byte-identical.
+        case .restart:
+            return ["type": "restart"]
+        case .complete:
+            return ["type": "complete"]
+        case .setResponse(let key, let value):
+            return ["type": "setResponse", "key": key, "value": value]
+        case .presentPaywall(let id):
+            return ["type": "presentPaywall", "id": id]
+        case .dismissPaywall:
+            return ["type": "dismissPaywall"]
+        case .showMessage(let id):
+            return ["type": "showMessage", "id": id]
+        case .setUserProperty(let key, let value):
+            return ["type": "setUserProperty", "key": key, "value": value]
+        case .purchase(let productId):
+            return ["type": "purchase", "productId": productId]
+        case .restore:
+            return ["type": "restore"]
         }
     }
 }

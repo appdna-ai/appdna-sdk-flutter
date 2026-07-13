@@ -1045,8 +1045,24 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
         private const val FRAMEWORK_TAG = "flutter"
     }
 
-    private fun parseOptions(map: Map<String, Any>?): AppDNAOptions {
-        if (map == null) return AppDNAOptions()
+    /**
+     * ⚠ `internal`, not `private` — SPEC-070-B AC-11's own testability prerequisite.
+     *
+     * A Dart test cannot see a Kotlin `?: 3600`, and the fixture runners never reach the bridge. The
+     * only thing that can observe the `framework` tag, the `configTTL` default and the
+     * `billingProvider` mapping is a native unit test, and while this was private there could not be
+     * one. `AppdnaParseOptionsTest` calls it (Kotlin `internal` is visible to the module's own test
+     * compilation).
+     */
+    internal fun parseOptions(map: Map<String, Any>?): AppDNAOptions {
+        // 🔴 This was `return AppDNAOptions()` — the bare native defaults, `framework = "native"`
+        // among them. The tag was injected on every OTHER path and dropped on this one, so the
+        // no-options path re-created the exact bug §7 rule 1 exists to prevent: a Flutter app whose
+        // `options` map never arrives (a caller that does not go through Dart's `toMap()`, an
+        // absent `options` key on the MethodCall) reports itself as a NATIVE app for the life of the
+        // process. `event-envelope.schema.ts` is `.catch('native')` — a wrong tag does not error, is
+        // not logged and is not metered. It just quietly lies in BigQuery.
+        if (map == null) return AppDNAOptions(framework = FRAMEWORK_TAG)
         val logLevel = when (map["logLevel"] as? String) {
             "none" -> LogLevel.NONE
             "error" -> LogLevel.ERROR

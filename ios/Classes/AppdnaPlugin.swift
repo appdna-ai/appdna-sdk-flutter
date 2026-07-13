@@ -654,8 +654,18 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     /// The wrapper's attribution tag. A constant, not a parameter — see `parseOptions`.
     static let frameworkTag = "flutter"
 
-    private func parseOptions(_ dict: [String: Any]?) -> AppDNAOptions {
-        guard let dict = dict else { return AppDNAOptions() }
+    /// ⚠ `internal`, not `private` — SPEC-070-B AC-11's own testability prerequisite. While it was
+    /// private, the `framework` tag, the `configTTL` default and the `billingProvider` mapping could
+    /// not be reached by any test on this platform: a Dart test mocks the MethodChannel away and sees
+    /// neither a Swift `??` nor an injected tag. `RunnerTests.swift` calls it.
+    internal func parseOptions(_ dict: [String: Any]?) -> AppDNAOptions {
+        // 🔴 This was `return AppDNAOptions()` — the bare native defaults, `framework: "native"`
+        // among them. The tag was injected on every OTHER path and dropped on this one, so the
+        // no-options path re-created the exact bug §7 rule 1 exists to prevent: a Flutter app whose
+        // `options` map never arrives reports itself as a NATIVE app for the life of the process.
+        // The envelope schema is `.catch('native')` — a wrong tag does not error, is not logged and
+        // is not metered. It just quietly lies in BigQuery.
+        guard let dict = dict else { return AppDNAOptions(framework: Self.frameworkTag) }
         let logLevelStr = dict["logLevel"] as? String ?? "warning"
         let logLevel: LogLevel
         switch logLevelStr {

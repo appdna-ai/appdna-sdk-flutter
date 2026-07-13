@@ -773,11 +773,28 @@ class AppDNAPaywallModule {
         );
         break;
       case 'onPaywallPurchaseFailed':
+        // 🔴 FLUTTER DID NOT COMPILE. This passed TWO arguments to a FOUR-parameter delegate.
+        //
+        // `onPaywallPurchaseFailed` gained `errorType` + `productId` when the RN wrapper was found to
+        // be ERASING them (it overrode the narrower overload, so the callback still fired while the
+        // two values vanished). The delegate is CODEGEN'D from the IR, so it grew the two parameters
+        // immediately — and RN's dispatcher was updated to pass them. This one, hand-written, was not.
+        //
+        // Dart is not TypeScript: `Too few positional arguments: 4 required, 2 given` is a COMPILE
+        // ERROR, so `flutter analyze` and `flutter test` were both red — on a branch where nothing
+        // said so, because the Flutter CI job only triggers on `packages/appdna-sdk-flutter/**` and
+        // the change that broke it lived in `src/lib/sdk-delegates/`. A codegen source outside a
+        // package's path filter can break that package with nothing to notice.
         d.onPaywallPurchaseFailed(
           args['paywallId'] as String? ?? '',
           // Generated delegate types this as `Object`; native sends either a
           // map ({ message, type }) or a raw string. Pass through verbatim.
           args['error'] ?? const <String, dynamic>{},
+          // The stable discriminator — a host cannot introspect `error` across the bridge, so without
+          // this it cannot tell a user cancel from a declined card from a dead network.
+          args['errorType'] as String? ?? 'unknown',
+          // Null only when no product was ever selected. A paywall selling two plans must say WHICH.
+          args['productId'] as String?,
         );
         break;
       case 'onPaywallRestoreStarted':

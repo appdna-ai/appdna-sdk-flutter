@@ -2,7 +2,7 @@
 // Source: src/lib/sdk-codegen/dto-registry.ts
 // Generator: scripts/sdk-codegen/emit-dtos.ts
 // Regenerate: pnpm sdk-codegen
-// Last codegen commit: 13c1ee7516018f38ce75906d0a56a89e0a16b34b
+// Last codegen commit: becec5bd534f3a891ae3ea7638d019d42a81b848
 
 enum AppDNAEnvironmentRegion {
   us('us'),

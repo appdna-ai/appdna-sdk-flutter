@@ -2,7 +2,7 @@
 /// native SDK so `diagnose()` shows the Flutter version per platform (instead of
 /// the native core version). MUST be kept in sync with `pubspec.yaml` `version:`
 /// (bump both together — see D14 version-bump checklist).
-const String kAppDNAFlutterSdkVersion = '1.0.9';
+const String kAppDNAFlutterSdkVersion = '1.0.8';
 
 /// Log verbosity levels.
 enum AppDNALogLevel { none, error, warning, info, debug }
@@ -77,7 +77,7 @@ class AppDNAOptions {
   /// The field is kept (rather than removed) so existing hosts still compile; setting it now has no
   /// effect.
   @Deprecated(
-    'Ignored since 1.0.9 — the native bridge injects the framework tag itself. '
+    'Ignored since 1.0.8 — the native bridge injects the framework tag itself. '
     'A host must not be able to set, spoof, or omit its own attribution. Remove this argument.',
   )
   final String? framework;

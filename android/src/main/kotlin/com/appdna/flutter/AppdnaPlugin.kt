@@ -1297,7 +1297,12 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
         return when (map["type"] as? String ?: "proceed") {
             "proceedWithData" -> StepAdvanceResult.ProceedWithData(asStringMap(map["data"]))
             "block" -> StepAdvanceResult.Block(map["message"] as? String ?: "")
-            "skipTo" -> StepAdvanceResult.SkipTo(
+            // `skipToWithData` is an ACCEPTED ALIAS of `skipTo`, not a second encoding — the canonical
+            // wire shape is `{type:"skipTo", stepId, data?}` and `data` promotes it. It is in
+            // KNOWN_DECISIONS (so the auth gate treats it as an explicit answer), but without a case
+            // here it fell to `else -> Proceed` and ADVANCED an auth step instead of skipping it.
+            // Mirrors React Native (`AppdnaDelegates.kt` `"skipTo", "skipToWithData"`).
+            "skipTo", "skipToWithData" -> StepAdvanceResult.SkipTo(
                 map["stepId"] as? String ?: "",
                 (map["data"] as? Map<*, *>)?.let { asStringMap(it) },
             )

@@ -185,12 +185,23 @@ class AppDNA {
   }
 
   /// Present a paywall.
-  static Future<void> presentPaywall(String id,
+  ///
+  /// 🔴 THIS RETURNED `Future<void>` AND THREW THE NATIVE ANSWER AWAY.
+  ///
+  /// Both natives return a Bool — false when the id is not in the published config, when the SDK is
+  /// not configured yet, or when it is runtime-locked. This facade discarded it, so `await
+  /// AppDNA.presentPaywall('typo_id')` completed SUCCESSFULLY and told a Flutter host the paywall had
+  /// been shown. No paywall ever appeared. That is exactly the defect the Bool was added to fix, still
+  /// live on Flutter — on the surface that takes the money.
+  ///
+  /// Returns false if nothing was presented.
+  static Future<bool> presentPaywall(String id,
       {PaywallContext? context}) async {
-    await _channel.invokeMethod('presentPaywall', {
+    final shown = await _channel.invokeMethod<bool>('presentPaywall', {
       'id': id,
       'context': context?.toMap(),
     });
+    return shown ?? false;
   }
 
   /// Present an onboarding flow.
@@ -532,12 +543,15 @@ class AppDNA {
   /// Present a paywall by placement — the SDK auto-selects the best audience
   /// match. Real on Android; on iOS this routes to the placement-based
   /// `presentPaywall` overload (§3.14).
-  static Future<void> presentPaywallByPlacement(String placement,
+  /// Returns false if no paywall matched the placement (or the SDK could not present one) — see
+  /// [presentPaywall] for why discarding this answer was a bug.
+  static Future<bool> presentPaywallByPlacement(String placement,
       {PaywallContext? context}) async {
-    await _channel.invokeMethod('presentPaywallByPlacement', {
+    final shown = await _channel.invokeMethod<bool>('presentPaywallByPlacement', {
       'placement': placement,
       'context': context?.toMap(),
     });
+    return shown ?? false;
   }
 
   /// Shorthand to present a paywall by ID over the current top screen.

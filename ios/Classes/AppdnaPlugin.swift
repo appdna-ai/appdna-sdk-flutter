@@ -219,8 +219,11 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             // The module present() resolves the top view controller itself.
             // Bind the forwarder so host hooks/vetoes are live even if the app never subscribed to this stream (same fix as onboarding + presentPaywallByPlacement).
             if let fwd = paywallForwarder { AppDNA.paywall.setDelegate(fwd) }
-            AppDNA.paywall.present(id, context: context)
-            result(nil)
+            // 🔴 `result(nil)` USED TO THROW THE ANSWER AWAY. Native returns false when the id is not
+            // published / the SDK is unconfigured / it is runtime-locked, and Dart's `Future<void>`
+            // resolved SUCCESSFULLY anyway — telling a Flutter host a paywall had been shown when none
+            // had. Hand the Bool across.
+            result(AppDNA.paywall.present(id, context: context))
 
         case "presentOnboarding":
             let flowId = args["flowId"] as? String
@@ -519,16 +522,19 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         case "presentPaywallByPlacement":
             let placement = args["placement"] as! String
             let ctx = parsePaywallContext(args["context"] as? [String: Any])
-            if let vc = UIApplication.shared.topViewController {
-                // SPEC-070-C HIGH-2 — no module-level placement present() exists,
-                // so pass the stored forwarder explicitly as the `delegate:` arg
-                // to make the host paywall delegate surface live (the static
-                // overload otherwise defaults delegate:nil). `paywallForwarder`
-                // is created in register() and held strongly; its sink no-ops
-                // until the host subscribes to the events/paywall stream.
-                AppDNA.presentPaywall(placement: placement, from: vc, context: ctx, delegate: paywallForwarder)
+            // 🔴 `result(nil)` threw the answer away — see the `presentPaywall` case above. A placement
+            // with no authored paywall now reports false instead of a cheerful success.
+            guard let vc = UIApplication.shared.topViewController else {
+                result(false)
+                return
             }
-            result(nil)
+            // SPEC-070-C HIGH-2 — no module-level placement present() exists,
+            // so pass the stored forwarder explicitly as the `delegate:` arg
+            // to make the host paywall delegate surface live (the static
+            // overload otherwise defaults delegate:nil). `paywallForwarder`
+            // is created in register() and held strongly; its sink no-ops
+            // until the host subscribes to the events/paywall stream.
+            result(AppDNA.presentPaywall(placement: placement, from: vc, context: ctx, delegate: paywallForwarder))
 
         case "showPaywall":
             // SPEC-070-C HIGH-2 — route through the MODULE present() (which

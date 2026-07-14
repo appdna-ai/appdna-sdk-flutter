@@ -505,8 +505,11 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                 // `AppDNA.presentPaywall(activity, id, context)` defaults
                 // listener=null and would leave all host paywall callbacks dead.
                 ensurePaywallDelegate()
-                activity?.let { AppDNA.paywall.present(it, id, paywallContext) }
-                result.success(null)
+                // 🔴 `result.success(null)` USED TO THROW THE ANSWER AWAY. Native returns false when the
+                // id is not published / the SDK is unconfigured / it is runtime-locked, and Dart's
+                // `Future<void>` resolved SUCCESSFULLY anyway — telling a Flutter host a paywall had been
+                // shown when none had. Hand the Boolean across.
+                result.success(activity?.let { AppDNA.paywall.present(it, id, paywallContext) } ?: false)
             }
             "presentOnboarding" -> {
                 val flowId = call.argument<String>("flowId")!!
@@ -834,8 +837,13 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                 // host is subscribed to the events/paywall stream (null otherwise),
                 // so this exactly mirrors the module's stored-listener behavior.
                 ensurePaywallDelegate()
-                activity?.let { AppDNA.presentPaywallByPlacement(it, placement, paywallContext, paywallForwarder) }
-                result.success(null)
+                // Same as the id-based case above: a placement with no authored paywall now reports
+                // false instead of a cheerful success.
+                result.success(
+                    activity?.let {
+                        AppDNA.presentPaywallByPlacement(it, placement, paywallContext, paywallForwarder)
+                    } ?: false,
+                )
             }
             "showPaywall" -> {
                 // SPEC-070-C HIGH-2 — route through the MODULE present() so the

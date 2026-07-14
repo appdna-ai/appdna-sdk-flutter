@@ -851,8 +851,9 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                 // `AppDNA.showPaywall(id)` routes through presentPaywall with
                 // listener=null.
                 ensurePaywallDelegate()
-                activity?.let { AppDNA.paywall.present(it, call.argument<String>("id")!!) }
-                result.success(null)
+                result.success(
+                    activity?.let { AppDNA.paywall.present(it, call.argument<String>("id")!!) } ?: false,
+                )
             }
             "skipNextAutoDismissOnRestore" -> {
                 AppDNA.paywall.skipNextAutoDismissOnRestore = call.argument<Boolean>("value") ?: false

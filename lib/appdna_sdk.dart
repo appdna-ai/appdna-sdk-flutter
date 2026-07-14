@@ -555,8 +555,10 @@ class AppDNA {
   }
 
   /// Shorthand to present a paywall by ID over the current top screen.
-  static Future<void> showPaywall(String id) async {
-    await _channel.invokeMethod('showPaywall', {'id': id});
+  /// Returns false if nothing was presented — see [presentPaywall].
+  static Future<bool> showPaywall(String id) async {
+    final shown = await _channel.invokeMethod<bool>('showPaywall', {'id': id});
+    return shown ?? false;
   }
 
   /// Suppress the next auto-dismiss that would otherwise fire after a restore
@@ -741,9 +743,18 @@ class AppDNAPaywallModule {
 
   AppDNAPaywallModule._(this._channel);
 
-  Future<void> present(String id, {PaywallContext? context}) =>
-      _channel.invokeMethod(
-          'presentPaywall', {'id': id, 'context': context?.toMap()});
+  /// Present a paywall by id. Returns false if nothing was presented (the id is
+  /// not in the published config, the SDK is unconfigured, or it is runtime-locked).
+  ///
+  /// 🔴 This is the facade the docs point hosts to, and it USED TO RETURN `Future<void>` —
+  /// discarding the Bool the plugin already returns. `await AppDNA.paywall.present('typo_id')`
+  /// completed cheerfully with no paywall shown. The top-level `AppDNA.presentPaywall` was fixed
+  /// and this module facade was missed.
+  Future<bool> present(String id, {PaywallContext? context}) async {
+    final shown = await _channel.invokeMethod<bool>(
+        'presentPaywall', {'id': id, 'context': context?.toMap()});
+    return shown ?? false;
+  }
 
   /// Set a delegate to receive paywall lifecycle callbacks.
   /// Pass `null` to clear the current delegate and stop listening.

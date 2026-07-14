@@ -542,8 +542,8 @@ public class AppdnaPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             // The static `AppDNA.showPaywall(_:)` presents with delegate:nil.
             // Bind the forwarder so host hooks/vetoes are live even if the app never subscribed to this stream (same fix as onboarding + presentPaywallByPlacement).
             if let fwd = paywallForwarder { AppDNA.paywall.setDelegate(fwd) }
-            AppDNA.paywall.present(args["id"] as! String)
-            result(nil)
+            // The module present() returns whether it presented — hand it across instead of nil.
+            result(AppDNA.paywall.present(args["id"] as! String))
 
         case "skipNextAutoDismissOnRestore":
             AppDNA.paywall.skipNextAutoDismissOnRestore = args["value"] as? Bool ?? false

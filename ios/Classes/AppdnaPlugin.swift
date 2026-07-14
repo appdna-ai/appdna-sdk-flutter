@@ -1105,7 +1105,40 @@ private class OnboardingDelegateForwarder: NSObject, AppDNAOnboardingDelegate, F
         ]
         if let stepData = stepData { args["stepData"] = stepData }
         let reply = await invoker.invokeDart("onBeforeStepAdvance", args)
+        // 🔴 AN AUTH ACTION MAY ONLY ADVANCE ON AN EXPLICIT, RECOGNISED HOST DECISION.
+        //
+        // The Flutter plugin ALWAYS binds this forwarder before presenting, so the core renderer's own
+        // gate (`delegate == nil`) never fires. Flutter had three ways to advance a credential step
+        // unauthenticated: a `nil` reply, a `{}` reply (`map["type"] ?? "proceed"`), and the Dart base
+        // class's default `onBeforeStepAdvance` which RETURNS `{}`. Same fix RN got; missing on the SDK
+        // that ships on pub.dev.
+        if Self.isAuthAction(stepData), !Self.isExplicitDecision(reply) {
+            return .block(message: Self.authUnavailableMessage)
+        }
         return Self.stepAdvanceResult(from: reply)
+    }
+
+    /// Actions that collect/act on a credential and MUST be host-handled before the flow advances.
+    /// Kept in sync with React Native + the iOS core `AuthActionPolicy.delegateRequiredActions`.
+    private static let authActions: Set<String> = [
+        "social_login", "login", "register", "reset_password", "magic_link", "verify_email",
+        "resend_verification", "enable_biometric", "email_login", "request_otp", "verify_otp",
+        "logout", "change_password", "set_new_password", "delete_account", "update_profile",
+    ]
+
+    private static let authUnavailableMessage = "Sign-in isn't available right now. Please try again later."
+
+    private static func isAuthAction(_ stepData: [String: Any]?) -> Bool {
+        authActions.contains((stepData?["action"] as? String) ?? "")
+    }
+
+    /// A map with a RECOGNISED `type`. A `{}`, the unhandled sentinel, `nil`, a timeout, or an unknown
+    /// `type` are all "the host did not answer" — and on an auth action that is never "let them in".
+    private static func isExplicitDecision(_ reply: Any?) -> Bool {
+        guard let map = reply as? [String: Any] else { return false }
+        if map["__appdna_unhandled"] as? Bool == true { return false }
+        guard let type = map["type"] as? String else { return false }
+        return ["proceed", "proceedWithData", "block", "skipTo", "skipToWithData", "stay"].contains(type)
     }
 
     func onBeforeStepRender(

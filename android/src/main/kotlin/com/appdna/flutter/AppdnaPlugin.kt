@@ -1259,6 +1259,39 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
      * `{type:"block",message}` | `{type:"skipTo",stepId,data?}` |
      * `{type:"stay",message?}`  →  [StepAdvanceResult] (default Proceed).
      */
+    /**
+     * Actions that collect or act on a credential and MUST be handled by the host before the flow
+     * advances. Kept in sync with React Native (`AppdnaDelegates.kt`) and the iOS core
+     * (`AuthActionPolicy.delegateRequiredActions`).
+     */
+    private val AUTH_ACTIONS = setOf(
+        "social_login", "login", "register", "reset_password", "magic_link", "verify_email",
+        "resend_verification", "enable_biometric", "email_login", "request_otp", "verify_otp",
+        "logout", "change_password", "set_new_password", "delete_account", "update_profile",
+    )
+
+    private val AUTH_UNAVAILABLE_MESSAGE = "Sign-in isn't available right now. Please try again later."
+
+    private fun isAuthAction(stepData: Map<String, Any>?): Boolean =
+        (stepData?.get("action") as? String) in AUTH_ACTIONS
+
+    /** The decision types [toStepAdvanceResult] actually understands. */
+    private val KNOWN_DECISIONS = setOf(
+        "proceed", "proceedWithData", "block", "skipTo", "skipToWithData", "stay",
+    )
+
+    /**
+     * Did the host make an EXPLICIT, RECOGNISED decision? A map with no `type` (`{}`), the unhandled
+     * sentinel, `null`, a timeout, a channel error, or a `type` the decoder does not know are all "the
+     * host did not answer" — and on an auth action that is never "let them in". See the caller.
+     */
+    private fun isExplicitDecision(reply: Any?): Boolean {
+        val map = reply as? Map<*, *> ?: return false
+        if (map["__appdna_unhandled"] == true) return false
+        val type = map["type"] as? String ?: return false
+        return type in KNOWN_DECISIONS
+    }
+
     private fun toStepAdvanceResult(reply: Any?): StepAdvanceResult {
         val map = reply as? Map<*, *> ?: return StepAdvanceResult.Proceed
         return when (map["type"] as? String ?: "proceed") {
@@ -1494,7 +1527,20 @@ class AppdnaPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, EventChann
                 "responses" to responses,
             )
             if (stepData != null) args["stepData"] = stepData
-            return toStepAdvanceResult(invokeDart("onBeforeStepAdvance", args))
+            val reply = invokeDart("onBeforeStepAdvance", args)
+            // 🔴 AN AUTH ACTION MAY ONLY ADVANCE ON AN EXPLICIT, RECOGNISED HOST DECISION.
+            //
+            // The Flutter plugin ALWAYS binds this forwarder before presenting, so the core renderer's
+            // own gate (`delegate == nil`) never fires — exactly as on React Native. And Flutter had
+            // THREE ways to advance a credential step with nobody authenticating: a `null` reply, a `{}`
+            // reply (`map["type"] ?: "proceed"`), and the Dart base class's default `onBeforeStepAdvance`
+            // which literally RETURNS `{}`. So a published `login` / `verify_otp` / `social_login` step
+            // advanced the user into the app on the SDK's own default. This is the same fix RN got in
+            // `AppdnaDelegates`; it was missing on the SDK that actually ships on pub.dev.
+            if (isAuthAction(stepData) && !isExplicitDecision(reply)) {
+                return StepAdvanceResult.Block(AUTH_UNAVAILABLE_MESSAGE)
+            }
+            return toStepAdvanceResult(reply)
         }
 
         override suspend fun onBeforeStepRender(
